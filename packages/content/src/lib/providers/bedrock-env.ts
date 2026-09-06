@@ -1,6 +1,7 @@
 /**
  * The default AWS region + credential resolution for the keyless Bedrock
- * provider — read from the ambient environment, NOT from a bearer-key env.
+ * providers (Cohere and Titan) — read from the ambient environment, NOT from a
+ * bearer-key env. Model-neutral: both Bedrock vendors sign from the same chain.
  *
  * Kept dependency-free on purpose (decision 12): rather than pull the AWS SDK's
  * credential-provider chain, the operator exports standard AWS variables into
@@ -15,15 +16,15 @@
  * default, not the only option.
  */
 
-import type { AwsCredentials, CredentialProvider } from "./bedrock-cohere-rest.js";
+import type { AwsCredentials, CredentialProvider } from "./bedrock-rest.js";
 
 /** The region for Bedrock, from the standard AWS environment variables. */
 export function defaultAwsRegion(): string {
   const region = process.env["AWS_REGION"] || process.env["AWS_DEFAULT_REGION"] || "";
   if (region === "") {
     throw new Error(
-      "bedrock-cohere: no AWS region — set AWS_REGION (or AWS_DEFAULT_REGION) to the region " +
-        "your Bedrock model runs in (e.g. AWS_REGION=ca-central-1)",
+      "bedrock: no AWS region — set AWS_REGION (or AWS_DEFAULT_REGION) to the region " +
+        "your Bedrock model runs in (e.g. AWS_REGION=us-east-1)",
     );
   }
   return region;
@@ -38,7 +39,7 @@ export function defaultCredentialProvider(): CredentialProvider {
     const secretAccessKey = process.env["AWS_SECRET_ACCESS_KEY"] || "";
     if (accessKeyId === "" || secretAccessKey === "") {
       throw new Error(
-        "bedrock-cohere: no AWS credentials in the environment — export AWS_ACCESS_KEY_ID and " +
+        "bedrock: no AWS credentials in the environment — export AWS_ACCESS_KEY_ID and " +
           "AWS_SECRET_ACCESS_KEY (plus AWS_SESSION_TOKEN for SSO/STS credentials). " +
           "`aws configure export-credentials --profile <p> --format env` prints them.",
       );

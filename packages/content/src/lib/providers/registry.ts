@@ -19,7 +19,8 @@ import { EMBED_DIM, EMBED_MODEL, EMBED_TASK_DOCUMENT, EMBED_TASK_QUERY } from ".
 import { EMBED_TIMEOUT_S, QUERY_EMBED_TIMEOUT_S } from "../embedding.js";
 import type { EmbeddingProvider } from "../embedding.js";
 import { BedrockCohereEmbeddingProvider } from "./bedrock-cohere.js";
-import { defaultAwsRegion, defaultCredentialProvider } from "./bedrock-cohere-env.js";
+import { defaultAwsRegion, defaultCredentialProvider } from "./bedrock-env.js";
+import { BedrockTitanEmbeddingProvider } from "./bedrock-titan.js";
 import { FakeEmbeddingProvider } from "./fake.js";
 import { GeminiEmbeddingProvider } from "./gemini.js";
 import { OpenAiEmbeddingProvider } from "./openai.js";
@@ -150,6 +151,29 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
     // Cohere v3 `input_type`: corpus vs query. Non-empty and DISTINCT, so the
     // plane cannot be mis-routed silently.
     taskLabels: { document: "search_document", query: "search_query" },
+  },
+  // Amazon Bedrock's Titan Text Embeddings V2 — the production model for the
+  // HealthLake deployment (#Titan) and, like Cohere, a KEYLESS (SigV4/IAM)
+  // vendor: region and credentials come from the ambient AWS chain, so there is
+  // no key env to name. It signs through the SAME `bedrock-rest.ts` transport as
+  // Cohere. SYMMETRIC — no task type, so both labels are empty, the case
+  // `lib/embedding.ts` names as the one that cannot mis-route a plane.
+  "bedrock-titan": {
+    build: (opts: ProviderBuildOptions): EmbeddingProvider =>
+      new BedrockTitanEmbeddingProvider({
+        modelId: opts.modelId,
+        dim: opts.dim,
+        documentTaskLabel: opts.documentTaskLabel,
+        queryTaskLabel: opts.queryTaskLabel,
+        documentTimeoutS: opts.documentTimeoutS,
+        queryTimeoutS: opts.queryTimeoutS,
+        region: defaultAwsRegion(),
+        credentials: defaultCredentialProvider(),
+      }),
+    needsApiKey: false,
+    keyEnv: null,
+    // SYMMETRIC: no task type at all, so both labels are empty.
+    taskLabels: { document: "", query: "" },
   },
   // ksor addition: deterministic and key-free, so the DB tier and CI exercise
   // ingest + retrieval without a vendor key. Its model id is always

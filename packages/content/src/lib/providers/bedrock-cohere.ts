@@ -2,70 +2,36 @@
  * The Bedrock Cohere embedding adapter — a keyless (SigV4/IAM) vendor behind
  * the seam, and the second ASYMMETRIC one after Gemini.
  *
+ * Post-#Titan it is NOT the production model — Titan V2 is the target space.
+ * This adapter is retained as the emergency ROLLBACK target (generation 4) for
+ * the cutover observation window, and as the regression baseline proving the
+ * shared `bedrock-rest.ts` signer serves two vendors.
+ *
  * It needed no change to `EmbeddingProvider`, to the framework's
  * normalization, to the degeneracy check, or to the persisted identity of an
  * embedding space — which is `modelId` + column dimension and never the
- * vendor. The default shipped space is unchanged (decision 30); this is an
- * instance-declared alternative, chosen with `embedding.provider:
- * bedrock-cohere` and its own `embedding.model` / `embedding.dim`.
- *
- * WHAT AN ADOPTER MUST KNOW: a different provider is a DIFFERENT EMBEDDING
- * SPACE. Every stored vector must be re-embedded and every calibrated
- * `vector_floor` re-measured — the product invariant forbids copying a
- * calibrated constant between spaces. The schema records `embedding_model` per
- * generation, so a mismatch is caught rather than served.
+ * vendor. Selected with `embedding.provider: bedrock-cohere` and its own
+ * `embedding.model` / `embedding.dim`.
  *
  * ASYMMETRIC like Gemini: `input_type` (`search_document` / `search_query`)
  * produces different vectors for the same text, so the intent picks the label
- * AND the timeout. Mis-routing a plane here is a real correctness risk — this
- * is exactly the case the empty-label shortcut does NOT cover.
+ * AND the timeout. Mis-routing a plane here is a real correctness risk.
  *
  * AUTH: the AWS credential chain via a `CredentialProvider`, not an API key.
- * The registry row is keyless; there is no `GEMINI_API_KEY`-shaped env for it.
+ * The registry row is keyless. Retry classification is shared with Titan in
+ * `bedrock-rest.ts` — the two planes are a property of ksor, not of a vendor.
  */
 
 import type { EmbeddingProvider, Intent } from "../embedding.js";
 import {
   bedrockCohereRestEmbedClient,
-  BedrockHttpError,
   type BedrockCohereEmbedClient,
-  type CredentialProvider,
 } from "./bedrock-cohere-rest.js";
+import { isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
 
-/** True for a transport blip with no HTTP status of its own. */
-function isTransportBlip(exc: unknown): boolean {
-  if (exc instanceof BedrockHttpError) return false;
-  const name = (exc as { name?: unknown } | null)?.name;
-  return name === "AbortError" || name === "TimeoutError" || name === "TypeError";
-}
-
-function httpStatusOf(exc: unknown): number | undefined {
-  return exc instanceof BedrockHttpError ? exc.status : undefined;
-}
-
-/**
- * The INGEST plane's taxonomy: transport blips, 5xx, AND 429
- * (ThrottlingException) — batch work is resumable and has nobody waiting.
- * Deliberately the same shape as the other adapters', because the two planes
- * are a property of ksor, not of a vendor.
- */
-export function isRetryable(exc: unknown): boolean {
-  if (isTransportBlip(exc)) return true;
-  const status = httpStatusOf(exc);
-  if (status === undefined) return false;
-  return (status >= 500 && status <= 599) || status === 429;
-}
-
-/**
- * The READ plane's: transport blips + 5xx only, NEVER 429. A throttled
- * account stays throttled on the next second, so a search degrades to
- * keyword-only now rather than stalling a reader behind backoff.
- */
-export function isRetryableQuery(exc: unknown): boolean {
-  if (isTransportBlip(exc)) return true;
-  const status = httpStatusOf(exc);
-  return status !== undefined && status >= 500 && status <= 599;
-}
+// Re-exported so existing importers (and the plane taxonomy's home) keep a
+// single name; the implementation lives once, in the shared transport.
+export { isRetryable, isRetryableQuery } from "./bedrock-rest.js";
 
 export interface BedrockCohereEmbeddingProviderOptions {
   modelId: string;
