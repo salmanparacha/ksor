@@ -13,6 +13,12 @@
  * the local tarball into the build context — and the insertion is asserted to be
  * the only difference, so this can never quietly drift into testing a different
  * recipe than adopters get.
+ *
+ * NO VENDOR KEY: the walk pins the deterministic, key-free `fake` embedding
+ * provider (the scaffold defaults to Gemini). "No vendor" is the job's name and
+ * its point — it proves the container/MCP path with no vendor API key at all,
+ * which is what lets it run on a fork that holds no secrets. Real embedding
+ * fidelity is covered by the database and live-provider tiers.
  */
 
 import { execFileSync } from "node:child_process";
@@ -94,6 +100,23 @@ try {
   if (!instance.includes("\ndatabase:\n  dsn_env: KSOR_DB_URL")) {
     fail("the scaffold no longer ships a live `database.dsn_env` block");
   }
+
+  // Keyless "no vendor" walk: pin the deterministic `fake` embedding provider
+  // so this job needs NO vendor API key. The scaffold defaults to Gemini, whose
+  // ingest would demand GEMINI_API_KEY; `fake` is key-free and deterministic and
+  // still exercises the real ingest -> flip -> serve -> cited-search path this
+  // job exists to prove. The scaffold declares no `embedding:` block (it relies
+  // on the default), so this inserts one before `database:`.
+  if (/\nembedding:/.test(instance)) {
+    fail("the scaffold now declares an `embedding:` block — update the keyless pin here");
+  }
+  writeFileSync(
+    instancePath,
+    instance.replace(
+      "\ndatabase:\n  dsn_env: KSOR_DB_URL",
+      "\nembedding:\n  provider: fake\ndatabase:\n  dsn_env: KSOR_DB_URL",
+    ),
+  );
 
   // 3. Install the LOCAL build, not the published one.
   //
@@ -224,8 +247,6 @@ try {
     `PORT=${PORT}`,
     "-e",
     `KSOR_DB_URL=${DSN}`,
-    "-e",
-    `GEMINI_API_KEY=${process.env["GEMINI_API_KEY"] ?? ""}`,
     // A container sets $PORT, so the door binds 0.0.0.0 — a PUBLIC bind. The
     // posture has to SAY so: disabled-local refuses here, deliberately, and
     // that refusal is what this job first hit.

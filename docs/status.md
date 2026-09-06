@@ -10,7 +10,8 @@ updated: 2026-09-02.
 attached). It ships the working `ksor init` described below — including the
 visibility model and the deploy story — AND the bundled content kernel, so
 `ksor build`, `ksor migrate`, `ksor serve`, `ksor ingest`, `ksor schema`,
-`ksor grant`, `ksor takedown`, `ksor calibrate` and `ksor gc` all run from the
+`ksor grant`, `ksor takedown`, `ksor calibrate`, `ksor gc` and `ksor rollback`
+all run from the
 one `ksor` binary. The scaffold ships THREE skills — `intake-interview`,
 `add-sources`, `format-checker`; `make-slides` and `make-summary` were removed
 after 0.0.55 (they remain in the history below as what 0.0.38 added).
@@ -498,6 +499,17 @@ and the REST endpoint return **byte-identical vectors** for the same text, model
 meaning; had they differed by a rounding step the swap would have silently
 invalidated `vector_floor` everywhere. The provider seam is unchanged and a
 deployment may still supply an SDK client through `clientFactory`.
+
+**Bedrock providers (this fork).** Two KEYLESS providers ride the seam via one
+shared SigV4 `InvokeModel` transport (`bedrock-rest.ts`): `bedrock-titan`
+(`amazon.titan-embed-text-v2:0`, 1024-dim, normalized, symmetric — the
+production model for the AWS HealthLake deployment) and `bedrock-cohere`
+(`cohere.embed-english-v3` — retained as the emergency rollback target).
+Credentials resolve at call time from an AgentCore/ECS workload-role endpoint
+(refreshed before expiry) or static `AWS_*` env vars; a credential failure or a
+`401`/`403` is FATAL to an ingest (the drain aborts, queue pending, rather than
+quarantining chunks). Titan refuses an over-50,000-character input rather than
+truncating it. See `packages/ksor/docs/deploying.md`.
 
 ### What a real foreign corpus found (0.0.16)
 

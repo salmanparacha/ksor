@@ -289,4 +289,3 @@ jobs:
       - run: node scripts/container-acceptance.mjs
         env:
           KSOR_DB_URL: postgresql://ksor:ksor@localhost:5432/ksor
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

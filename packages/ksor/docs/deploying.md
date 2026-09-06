@@ -295,6 +295,19 @@ names — `GEMINI_API_KEY` for `gemini` (the default), `OPENAI_API_KEY` for
 wanted: `embedding provider "openai" needs an API key and none was supplied —
 set OPENAI_API_KEY`.
 
+**Amazon Bedrock providers are KEYLESS.** `bedrock-titan`
+(`amazon.titan-embed-text-v2:0`, 1024-dim, normalized — the production model for
+an AWS deployment) and `bedrock-cohere` (`cohere.embed-english-v3`) authenticate
+with SigV4 from the ambient AWS credential chain, not a bearer key, so they name
+no provider-key variable. They resolve credentials at call time, preferring an
+AgentCore/ECS workload-role endpoint (`AWS_CONTAINER_CREDENTIALS_FULL_URI` or
+`_RELATIVE_URI`, refreshed before expiry) and falling back to
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`); the region
+comes from `AWS_REGION`. A credential failure or a `401`/`403` from Bedrock is
+FATAL to an ingest — the run aborts with its queue pending rather than
+quarantining chunks for an account problem. A different provider is a different
+embedding space: switching re-embeds the whole corpus and re-measures the floor.
+
 `KSOR_AUTH` takes one of two values, and the value IS the decision:
 
 ```sh

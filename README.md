@@ -1783,6 +1783,7 @@ ksor grant
 ksor takedown
 ksor calibrate
 ksor gc
+ksor rollback
 ```
 
 ### `ksor init` — implemented

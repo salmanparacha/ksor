@@ -265,7 +265,11 @@ describe("ksor CLI (built artifact)", () => {
   it("answers --version with the version and exit 0", () => {
     const result = runCli(["--version"]);
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/^\d+\.\d+\.\d+\n$/);
+    // A prerelease/build suffix is a valid version (semver 9): the fork release
+    // line is `0.0.61-salman.1`, and the release airlock — not this feature
+    // branch — is where the version is set. Accept an optional `-<prerelease>`
+    // and `+<build>` so the airlock's version never trips this contract test.
+    expect(result.stdout).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\n$/);
   });
 
   // The corpus verbs are DELEGATED to the bundled content CLI (cli.ts dispatch).

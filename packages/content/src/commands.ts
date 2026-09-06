@@ -20,7 +20,7 @@ import pg from "pg";
 
 import { contentPool, ContentStoreError, INGEST_ROLE, runAuditRead, runIngest } from "./db.js";
 import { assertGovernanceServable } from "./governance-gate.js";
-import { flip } from "./ingest/generation.js";
+import { flip, rollback, RollbackRefused } from "./ingest/generation.js";
 import {
   parseInstance,
   InstanceParseError,
@@ -138,6 +138,15 @@ Usage:
   ksor gc --instance PATH [--dry-run]
       Reap generations the §5 algebra allows (never active/rollback, 40-min
       token grace, ≥2 complete generations remain).
+  ksor rollback --instance PATH
+      Restore the generation that was active BEFORE the last flip — the undo
+      when a post-flip acceptance check fails. Goes backward by design; refuses
+      when no prior generation is recorded, and refuses a SECOND consecutive
+      rollback (the active generation is already the rollback target — nothing
+      to restore). Prints the restored generation and
+      its embedding model, which the runtime image's provider/model must match
+      (a mismatch must fail closed, never query an incompatible vector space).
+      Preserves the audit trail; the superseded generation remains until gc.
 
 --instance PATH is an instance.md, or a directory at or below the record
 root: --instance . works from anywhere inside it.
@@ -1313,6 +1322,90 @@ async function gcCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+/**
+ * `ksor rollback` — restore the generation that was active before the last
+ * flip. A THIN caller of the existing `rollback()` primitive
+ * (`ingest/generation.ts`): it does not reimplement the transaction, the
+ * advisory lock, the pointer rules, or the audit row — the emergency-rollback
+ * path the Titan cutover depends on, so it must reuse the tested primitive
+ * rather than a second copy of it.
+ *
+ * Runs in the PUBLISHER plane (INGEST_ROLE): a rollback moves the served
+ * pointer, which the read-only runtime role must never do. Prints the restored
+ * generation AND its embedding model, because the operator's next act is to
+ * point the runtime at the image whose provider/model matches — a mismatch has
+ * to fail closed, never query an incompatible vector space.
+ */
+async function rollbackCommand(args: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      instance: { type: "string" },
+    },
+  });
+  const instance = loadInstance(values.instance);
+  if (typeof instance === "number") return instance;
+  const dsn = resolveDsn(instance);
+  if (typeof dsn === "number") return dsn;
+
+  type Outcome =
+    | { kind: "restored"; restored: number; embeddingModel: string }
+    | { kind: "refused"; reason: "no-prior" | "already-rolled-back"; message: string };
+
+  const outcome = await withPool(dsn, (pool) =>
+    runIngest(pool, instance.tenantId, async (client): Promise<Outcome> => {
+      let restored: number;
+      try {
+        restored = await rollback(client, {
+          tenantId: instance.tenantId,
+          corpusId: instance.corpusId,
+        });
+      } catch (exc) {
+        // The primitive refuses (typed) rather than moving a pointer: nothing to
+        // roll back to, or the active generation is ALREADY the rollback target
+        // (a second consecutive rollback). Returning here commits an empty
+        // transaction — the active generation is untouched.
+        if (exc instanceof RollbackRefused) {
+          return { kind: "refused", reason: exc.reason, message: exc.message };
+        }
+        throw exc;
+      }
+      // The restored generation's embedding space, read from its own sources
+      // rows (embedding_model is per-generation and NOT NULL). A generation is
+      // one space, so one distinct value is expected.
+      const models = await client.query<{ embedding_model: string }>(
+        "SELECT DISTINCT embedding_model FROM sources WHERE tenant_id = $1 AND generation = $2",
+        [instance.tenantId, restored],
+      );
+      const embeddingModel =
+        models.rows.length === 1
+          ? models.rows[0]!.embedding_model
+          : models.rows.length === 0
+            ? "unknown (no sources recorded for this generation)"
+            : models.rows.map((r) => r.embedding_model).join(", ");
+      return { kind: "restored", restored, embeddingModel };
+    }),
+  );
+
+  if (outcome.kind === "refused") {
+    // `no-prior` → nothing was ever superseded; `already-rolled-back` → a
+    // second consecutive rollback would be a no-op. Distinct slugs so a caller
+    // can branch (product principle 4). The active generation is unchanged in
+    // both cases.
+    const slug =
+      outcome.reason === "already-rolled-back" ? "ksor-rollback-noop" : "ksor-rollback-empty";
+    return refuse(slug, `${outcome.message}\n  note: the active generation is unchanged`);
+  }
+  process.stdout.write(
+    `rollback: restored generation ${outcome.restored} to serving ` +
+      `(embedding model ${outcome.embeddingModel})\n` +
+      "  the audit trail is preserved; the superseded generation remains until `ksor gc` reaps it\n" +
+      `  IMPORTANT: point the runtime at the image whose provider/model matches ` +
+      `${outcome.embeddingModel} — a mismatch must fail closed, not query an incompatible vector space\n`,
+  );
+  return 0;
+}
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -1347,6 +1440,8 @@ export async function runContentCli(argv: readonly string[]): Promise<number> {
         return await takedownCommand(rest);
       case "gc":
         return await gcCommand(rest);
+      case "rollback":
+        return await rollbackCommand(rest);
       default:
         return refuse("unknown-verb", `unknown command ${JSON.stringify(command)}\n` + USAGE);
     }

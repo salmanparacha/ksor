@@ -23,8 +23,8 @@
 import { describe, expect, it } from "vitest";
 
 import { BedrockCohereEmbeddingProvider, isRetryable, isRetryableQuery } from "./bedrock-cohere.js";
+import { BedrockHttpError } from "./bedrock-rest.js";
 import {
-  BedrockHttpError,
   bedrockCohereRestEmbedClient,
   type BedrockCohereEmbedClient,
 } from "./bedrock-cohere-rest.js";

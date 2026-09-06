@@ -34,7 +34,8 @@ instead of their training memory. The corpus grows with each implemented verb.
   a generation), `ksor takedown` (withdraw a document from EVERY
   surface — the committed ledger first, the denylist row second, so a record
   with no database can withdraw one), `ksor calibrate` (measure the
-  abstention floor) and `ksor gc` (reap retired generations). `ksor build`
+  abstention floor) and `ksor gc` (reap retired generations). `ksor rollback`
+  restores the generation active before the last flip. `ksor build`
   (check the record, generate its indexes, write `build.lock.json`) and
   `ksor migrate` (rewrite a pre-profile record into the KSoR Profile — a diff
   first, `--write` to apply) need no database. Only `ksor dev` remains designed, not implemented: it prints an
