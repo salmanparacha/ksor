@@ -102,11 +102,8 @@ jobs:
         run: |
           cd "$RUNNER_TEMP"
           sha="$(cut -d' ' -f1 SHA256SUMS)"
+          notes="Fork release asset for @panaversity/ksor ${version} — built and gated by CI (full suite incl. the Postgres database tier), not from a laptop; not published to npm. SHA-256 of panaversity-ksor-${version}.tgz: ${sha}. Consume it in the HealthLake repo by pointing package.json at this asset's download URL and committing the digest as system/aws/sdk-release.sha256."
           gh release create "$TAG" panaversity-ksor-*.tgz SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
-            --notes "Fork release asset for @panaversity/ksor ${version} — built and gated by CI (full suite incl. the Postgres database tier), not from a laptop. Not published to npm.
-
-SHA-256 (panaversity-ksor-${version}.tgz): \`${sha}\`
-
-Consume it in the HealthLake repo by pointing package.json at this asset's download URL and committing the digest as system/aws/sdk-release.sha256."
+            --notes "$notes"
