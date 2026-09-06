@@ -10,7 +10,8 @@ updated: 2026-09-02.
 attached). It ships the working `ksor init` described below — including the
 visibility model and the deploy story — AND the bundled content kernel, so
 `ksor build`, `ksor migrate`, `ksor serve`, `ksor ingest`, `ksor schema`,
-`ksor grant`, `ksor takedown`, `ksor calibrate` and `ksor gc` all run from the
+`ksor grant`, `ksor takedown`, `ksor calibrate`, `ksor gc` and `ksor rollback`
+all run from the
 one `ksor` binary. The scaffold ships THREE skills — `intake-interview`,
 `add-sources`, `format-checker`; `make-slides` and `make-summary` were removed
 after 0.0.55 (they remain in the history below as what 0.0.38 added).

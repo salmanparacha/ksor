@@ -35,6 +35,7 @@ export const verbs = [
   "takedown",
   "calibrate",
   "gc",
+  "rollback",
 ] as const;
 
 export type Verb = (typeof verbs)[number];

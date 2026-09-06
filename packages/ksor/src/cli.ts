@@ -97,6 +97,7 @@ const usage =
   "  grant      authorize ingest for this corpus (or --revoke it)\n" +
   "  takedown   deny a document from every surface (or --list / --revoke it)\n" +
   "  gc         collect superseded generations\n" +
+  "  rollback   restore the generation active before the last flip\n" +
   "\n" +
   "Exit codes: 1 refused · 2 designed but not implemented · 3 environment\n" +
   `Docs: node_modules/${pkg.name}/docs · ${pkg.homepage}\n`;
@@ -249,7 +250,8 @@ async function main(args: readonly string[]): Promise<number> {
     verb === "grant" ||
     verb === "takedown" ||
     verb === "calibrate" ||
-    verb === "gc"
+    verb === "gc" ||
+    verb === "rollback"
   ) {
     return runContentCli(args.slice(args.indexOf(verb)));
   }
