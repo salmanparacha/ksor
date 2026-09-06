@@ -734,13 +734,23 @@ describe("no document claims the door scopes audience per request", () => {
 describe("docs/status.md names the version that is actually published", () => {
   it("matches packages/ksor/package.json", () => {
     const version = (JSON.parse(read("packages/ksor/package.json")) as { version: string }).version;
-    const published = /`@panaversity\/ksor`\s+\*\*([0-9]+\.[0-9]+\.[0-9]+)\*\*\s+on npm/.exec(
-      read("docs/status.md"),
-    );
-    expect(published, "docs/status.md must name the published package version").not.toBeNull();
+    // Fork release channel: this is salmanparacha/ksor, distributed as a tagged
+    // GitHub Release asset (NOT npm — the deployment forbids an npm publish),
+    // and the version carries a prerelease identifier (0.0.61-salman.1). The
+    // assertion's INTENT is unchanged from upstream — status.md's installable
+    // version stays in lockstep with package.json — only the channel wording
+    // and the semver shape are the fork's.
+    const published =
+      /`@panaversity\/ksor`\s+\*\*([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?)\*\*\s+as a `salmanparacha\/ksor` GitHub Release/.exec(
+        read("docs/status.md"),
+      );
+    expect(
+      published,
+      "docs/status.md must name the fork release version as a salmanparacha/ksor GitHub Release asset",
+    ).not.toBeNull();
     expect(
       published?.[1],
-      `docs/status.md says the published package is ${published?.[1]}; package.json says ` +
+      `docs/status.md says the released package is ${published?.[1]}; package.json says ` +
         `${version}. It is the authority on what is built, and the first thing an ` +
         "evaluator's agent reads.",
     ).toBe(version);

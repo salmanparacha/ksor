@@ -1,5 +1,25 @@
 # @panaversity/ksor
 
+## 0.0.61-salman.1
+
+Fork release (salmanparacha/ksor) for the AWS HealthLake deployment — a tagged
+GitHub Release asset, not an npm publication.
+
+### Patch Changes
+
+- Add Amazon Bedrock Titan Text Embeddings V2 as a keyless embedding provider
+  (`bedrock-titan`, `amazon.titan-embed-text-v2:0`, 1024-dim, normalized,
+  symmetric), a generic Bedrock SigV4 `InvokeModel` transport shared by the
+  Titan and Cohere serializers, and the `ksor rollback` verb (restore the
+  generation active before the last flip; refuses `ksor-rollback-empty` when
+  there is none and `ksor-rollback-noop` on a second consecutive rollback, and
+  names the restored generation and its embedding model). Titan enforces its
+  50,000-character input ceiling by REFUSAL, never truncation. Bedrock 401/403
+  and credential-resolution failures are fatal to an ingest (the drain aborts
+  rather than quarantining chunks); credentials resolve from an AgentCore/ECS
+  workload-role endpoint with refresh, falling back to static AWS env vars.
+  Cohere is retained as the emergency rollback target.
+
 ## 0.0.60
 
 ### Patch Changes
