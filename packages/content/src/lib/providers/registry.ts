@@ -18,6 +18,8 @@
 import { EMBED_DIM, EMBED_MODEL, EMBED_TASK_DOCUMENT, EMBED_TASK_QUERY } from "../../config.js";
 import { EMBED_TIMEOUT_S, QUERY_EMBED_TIMEOUT_S } from "../embedding.js";
 import type { EmbeddingProvider } from "../embedding.js";
+import { BedrockCohereEmbeddingProvider } from "./bedrock-cohere.js";
+import { defaultAwsRegion, defaultCredentialProvider } from "./bedrock-cohere-env.js";
 import { FakeEmbeddingProvider } from "./fake.js";
 import { GeminiEmbeddingProvider } from "./gemini.js";
 import { OpenAiEmbeddingProvider } from "./openai.js";
@@ -124,6 +126,30 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
     // SYMMETRIC: no task type at all, so both labels are empty — the case
     // `lib/embedding.ts` names as the one that cannot mis-route a plane.
     taskLabels: { document: "", query: "" },
+  },
+  // Amazon Bedrock's Cohere Embed — a KEYLESS (SigV4/IAM) vendor, the case the
+  // registry's `needsApiKey: false` / `keyEnv: null` row was written for. It
+  // resolves its region and credentials from the ambient AWS chain (the same
+  // way the DSN comes from the environment), so there is no key env to name.
+  // ASYMMETRIC like Gemini: the two vendor `input_type` labels differ, so the
+  // intent must reach the transport — this is NOT the empty-label case.
+  "bedrock-cohere": {
+    build: (opts: ProviderBuildOptions): EmbeddingProvider =>
+      new BedrockCohereEmbeddingProvider({
+        modelId: opts.modelId,
+        dim: opts.dim,
+        documentTaskLabel: opts.documentTaskLabel,
+        queryTaskLabel: opts.queryTaskLabel,
+        documentTimeoutS: opts.documentTimeoutS,
+        queryTimeoutS: opts.queryTimeoutS,
+        region: defaultAwsRegion(),
+        credentials: defaultCredentialProvider(),
+      }),
+    needsApiKey: false,
+    keyEnv: null,
+    // Cohere v3 `input_type`: corpus vs query. Non-empty and DISTINCT, so the
+    // plane cannot be mis-routed silently.
+    taskLabels: { document: "search_document", query: "search_query" },
   },
   // ksor addition: deterministic and key-free, so the DB tier and CI exercise
   // ingest + retrieval without a vendor key. Its model id is always

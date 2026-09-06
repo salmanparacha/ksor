@@ -18,6 +18,7 @@ import {
 describe("the registry rows", () => {
   it("ships exactly these entries, with the right key posture and key variable", () => {
     expect(Object.keys(PROVIDERS).sort(), JSON.stringify(Object.keys(PROVIDERS))).toEqual([
+      "bedrock-cohere",
       "fake",
       "gemini",
       "openai",
@@ -25,6 +26,9 @@ describe("the registry rows", () => {
     expect(PROVIDERS["gemini"]?.needsApiKey).toBe(true);
     expect(PROVIDERS["openai"]?.needsApiKey).toBe(true);
     expect(PROVIDERS["fake"]?.needsApiKey).toBe(false);
+    // Bedrock is IAM-authenticated (SigV4), so it is KEYLESS — the case the
+    // registry's needsApiKey:false / keyEnv:null row exists for.
+    expect(PROVIDERS["bedrock-cohere"]?.needsApiKey).toBe(false);
 
     // The variable is the registry's to name, not a composition root's — the
     // defect issue #25 records. A key-free provider names none, so a root that
@@ -32,6 +36,7 @@ describe("the registry rows", () => {
     expect(PROVIDERS["gemini"]?.keyEnv).toBe("GEMINI_API_KEY");
     expect(PROVIDERS["openai"]?.keyEnv).toBe("OPENAI_API_KEY");
     expect(PROVIDERS["fake"]?.keyEnv).toBeNull();
+    expect(PROVIDERS["bedrock-cohere"]?.keyEnv).toBeNull();
   });
 
   it("gives every key-needing provider a DISTINCT variable", () => {
@@ -47,7 +52,7 @@ describe("the registry rows", () => {
 
   it("refuses an unknown name loudly, naming the registered set", () => {
     expect(() => buildShippedProvider("anthropic", { apiKey: "k" })).toThrow(
-      'unknown embedding provider "anthropic" — registered: fake, gemini, openai',
+      'unknown embedding provider "anthropic" — registered: bedrock-cohere, fake, gemini, openai',
     );
     expect(() => providerNeedsApiKey("typo")).toThrow(/unknown embedding provider/);
   });
