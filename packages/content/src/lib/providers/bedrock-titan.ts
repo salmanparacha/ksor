@@ -22,12 +22,12 @@
  */
 
 import type { EmbeddingProvider, Intent } from "../embedding.js";
-import { isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
+import { isFatal, isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
 import { bedrockTitanRestEmbedClient, type BedrockTitanEmbedClient } from "./bedrock-titan-rest.js";
 
 // Re-exported so the plane taxonomy has one name here too; the implementation
 // lives once, in the shared transport.
-export { isRetryable, isRetryableQuery } from "./bedrock-rest.js";
+export { isFatal, isRetryable, isRetryableQuery } from "./bedrock-rest.js";
 
 export interface BedrockTitanEmbeddingProviderOptions {
   modelId: string;
@@ -101,5 +101,9 @@ export class BedrockTitanEmbeddingProvider implements EmbeddingProvider {
 
   isRetryableQuery(exc: unknown): boolean {
     return isRetryableQuery(exc);
+  }
+
+  isFatal(exc: unknown): boolean {
+    return isFatal(exc);
   }
 }

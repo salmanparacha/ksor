@@ -1,0 +1,112 @@
+name: Release (fork asset)
+
+# The fork does NOT publish to npm — release.yml (npm trusted publishing) is
+# guarded to panaversity/ksor and no-ops here. This workflow is the fork's
+# release airlock: on a version tag it runs the FULL gate — including the
+# Postgres database tier, so the rollback path is proven against a real
+# database before anything ships — then packs @panaversity/ksor and attaches
+# the tarball to a GitHub Release. The artifact is built in CI, never from a
+# laptop, so what an adopter downloads is exactly what the gate passed.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build and release, e.g. v0.0.61-salman.1"
+        required: true
+
+concurrency:
+  group: release-fork
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the GitHub Release and upload the asset
+
+jobs:
+  release-asset:
+    name: Gate, pack, and attach the release tarball
+    # Fork-only. Upstream releases to npm through release.yml instead.
+    if: github.repository == 'salmanparacha/ksor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ksor
+          POSTGRES_PASSWORD: ksor
+          POSTGRES_DB: ksor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ksor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: ./.github/actions/setup
+
+      # BUILD FIRST: workspace packages resolve one another's types through
+      # their built dist, so typecheck and every test tier need it.
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm guard
+      - run: pnpm check:corpus
+      - run: pnpm test:unit
+      - run: pnpm test:integration
+      # The database tier proves the rollback path (two-generation rehearsal,
+      # the empty and no-op refusals, restored-generation + embedding-model
+      # output, audit preservation) against real Postgres + pgvector. The fake
+      # provider drives it, so no vendor key is required; a configured
+      # GEMINI_API_KEY additionally arms the live embedding tripwire.
+      - run: pnpm test:db
+        env:
+          KSOR_DB_URL: postgresql://ksor:ksor@localhost:5432/ksor
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - run: pnpm publint
+
+      # The tag names the version an adopter installs; it must equal the
+      # package manifest, or the asset URL and the tarball disagree.
+      - name: Tag matches package version
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="${tag#v}"
+          pkg=$(node -p "require('./packages/ksor/package.json').version")
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag ${tag} does not match packages/ksor version ${pkg}"
+            exit 1
+          fi
+          echo "version=${pkg}" >> "$GITHUB_ENV"
+
+      - name: Pack the published package
+        run: |
+          pnpm --filter @panaversity/ksor pack --pack-destination "$RUNNER_TEMP"
+          ls -l "$RUNNER_TEMP"/panaversity-ksor-*.tgz
+
+      - name: Checksum the tarball
+        run: |
+          cd "$RUNNER_TEMP"
+          sha256sum panaversity-ksor-*.tgz | tee SHA256SUMS
+
+      - name: Create the GitHub Release and attach the asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          cd "$RUNNER_TEMP"
+          sha="$(cut -d' ' -f1 SHA256SUMS)"
+          gh release create "$TAG" panaversity-ksor-*.tgz SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "Fork release asset for @panaversity/ksor ${version} — built and gated by CI (full suite incl. the Postgres database tier), not from a laptop. Not published to npm.
+
+SHA-256 (panaversity-ksor-${version}.tgz): \`${sha}\`
+
+Consume it in the HealthLake repo by pointing package.json at this asset's download URL and committing the digest as system/aws/sdk-release.sha256."

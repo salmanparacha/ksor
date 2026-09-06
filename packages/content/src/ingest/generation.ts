@@ -437,25 +437,61 @@ export async function flip(
 /**
  * Restore the previously-active generation (the undo when a post-flip
  * acceptance eval fails). Goes BACKWARD by design, so it does NOT use the
- * monotonic guard. Returns the generation restored to serving; throws when
- * there is nothing to roll back to.
+ * monotonic guard. Returns the generation restored to serving; throws
+ * `RollbackRefused` when there is nothing to roll back to.
  */
+export class RollbackRefused extends Error {
+  /** `no-prior`: nothing was ever superseded. `already-rolled-back`: the active
+   * generation already IS the rollback target, so a second consecutive rollback
+   * would be a no-op — refused rather than reported as a success that changed
+   * nothing. */
+  readonly reason: "no-prior" | "already-rolled-back";
+  constructor(reason: "no-prior" | "already-rolled-back", message: string) {
+    super(message);
+    this.name = "RollbackRefused";
+    this.reason = reason;
+  }
+}
+
 export async function rollback(
   client: pg.PoolClient,
   opts: { tenantId: string; corpusId: string },
 ): Promise<number> {
   await client.query(LOCK_SQL, [opts.tenantId]);
-  const res = await client.query(
-    "UPDATE corpora SET active_generation = rollback_generation, updated_at = now()" +
-      " WHERE tenant_id = $1 AND corpus_id = $2" +
-      "   AND rollback_generation IS NOT NULL AND rollback_generation > 0" +
-      " RETURNING active_generation",
+  // Read the pointer UNDER the lock and decide, rather than restoring in a bare
+  // UPDATE. A second consecutive rollback would otherwise re-assign
+  // active_generation := rollback_generation with both already equal — a no-op
+  // that RETURNING still reports as a success, so the operator believes the
+  // undo happened when it did nothing. It must REFUSE instead.
+  const ptr = await client.query(
+    "SELECT active_generation, rollback_generation FROM corpora WHERE tenant_id = $1 AND corpus_id = $2",
     [opts.tenantId, opts.corpusId],
   );
-  if (res.rows.length === 0) {
-    throw new Error("rollback refused: no prior generation recorded (rollback_generation unset)");
+  if (ptr.rows.length === 0) {
+    throw new RollbackRefused("no-prior", "rollback refused: no corpus row for this tenant/corpus");
   }
-  const restored = Number(res.rows[0].active_generation);
+  const active = Number(ptr.rows[0].active_generation);
+  const rollbackRaw: unknown = ptr.rows[0].rollback_generation;
+  const rollbackGen = rollbackRaw === null ? 0 : Number(rollbackRaw);
+  if (rollbackGen <= 0) {
+    throw new RollbackRefused(
+      "no-prior",
+      "rollback refused: no prior generation recorded (rollback_generation unset)",
+    );
+  }
+  if (active === rollbackGen) {
+    throw new RollbackRefused(
+      "already-rolled-back",
+      `rollback refused: already serving generation ${active}, which is the rollback target — ` +
+        "a second consecutive rollback has nothing to restore (flip forward before rolling back again)",
+    );
+  }
+  const restored = rollbackGen;
+  await client.query(
+    "UPDATE corpora SET active_generation = rollback_generation, updated_at = now()" +
+      " WHERE tenant_id = $1 AND corpus_id = $2",
+    [opts.tenantId, opts.corpusId],
+  );
   await client.query(
     "UPDATE ingestion_runs SET state = 'retired', finished_at = now()" +
       " WHERE tenant_id = $1 AND corpus_id = $2 AND state = 'active' AND generation <> $3",

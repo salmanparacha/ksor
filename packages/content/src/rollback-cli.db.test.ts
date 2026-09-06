@@ -156,4 +156,28 @@ describe.runIf(adminDsn !== "")("ksor rollback — CLI db acceptance", () => {
     );
     expect(audit.rows[0].n).toBe(1);
   }, 120_000);
+
+  it("a SECOND consecutive rollback REFUSES (ksor-rollback-noop), pointer unchanged", async () => {
+    // State from the previous test: active = 1 = rollback_generation. A second
+    // rollback would re-restore the same generation — a no-op that must NOT be
+    // reported as success.
+    const cap = capture();
+    const code = await runContentCli(["rollback", "--instance", INSTANCE_PATH]);
+    vi.restoreAllMocks();
+    expect(code, cap.out.join("")).toBe(1);
+    expect(cap.err.join("")).toContain("error: ksor-rollback-noop");
+    // Nothing moved.
+    const p = await pool.query(
+      "SELECT active_generation FROM corpora WHERE tenant_id = $1 AND corpus_id = $1",
+      [NAME],
+    );
+    expect(Number(p.rows[0].active_generation)).toBe(1);
+    // No SECOND rolled_back audit row was written by the refused call.
+    const audit = await pool.query(
+      "SELECT count(*)::int AS n FROM retrieval_log WHERE tenant_id = $1" +
+        " AND action = 'generation_activated' AND detail->>'rolled_back' = 'true'",
+      [NAME],
+    );
+    expect(audit.rows[0].n).toBe(1);
+  }, 120_000);
 });

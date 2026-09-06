@@ -20,7 +20,7 @@ import pg from "pg";
 
 import { contentPool, ContentStoreError, INGEST_ROLE, runAuditRead, runIngest } from "./db.js";
 import { assertGovernanceServable } from "./governance-gate.js";
-import { flip, rollback } from "./ingest/generation.js";
+import { flip, rollback, RollbackRefused } from "./ingest/generation.js";
 import {
   parseInstance,
   InstanceParseError,
@@ -141,7 +141,9 @@ Usage:
   ksor rollback --instance PATH
       Restore the generation that was active BEFORE the last flip — the undo
       when a post-flip acceptance check fails. Goes backward by design; refuses
-      when no prior generation is recorded. Prints the restored generation and
+      when no prior generation is recorded, and refuses a SECOND consecutive
+      rollback (the active generation is already the rollback target — nothing
+      to restore). Prints the restored generation and
       its embedding model, which the runtime image's provider/model must match
       (a mismatch must fail closed, never query an incompatible vector space).
       Preserves the audit trail; the superseded generation remains until gc.
@@ -1348,7 +1350,7 @@ async function rollbackCommand(args: string[]): Promise<number> {
 
   type Outcome =
     | { kind: "restored"; restored: number; embeddingModel: string }
-    | { kind: "empty"; message: string };
+    | { kind: "refused"; reason: "no-prior" | "already-rolled-back"; message: string };
 
   const outcome = await withPool(dsn, (pool) =>
     runIngest(pool, instance.tenantId, async (client): Promise<Outcome> => {
@@ -1359,11 +1361,12 @@ async function rollbackCommand(args: string[]): Promise<number> {
           corpusId: instance.corpusId,
         });
       } catch (exc) {
-        // The one refusal the primitive raises: nothing to roll back to. The
-        // UPDATE matched no row and moved no pointer, so returning here commits
-        // an empty transaction — the active generation is untouched.
-        if (exc instanceof Error && /no prior generation/.test(exc.message)) {
-          return { kind: "empty", message: exc.message };
+        // The primitive refuses (typed) rather than moving a pointer: nothing to
+        // roll back to, or the active generation is ALREADY the rollback target
+        // (a second consecutive rollback). Returning here commits an empty
+        // transaction — the active generation is untouched.
+        if (exc instanceof RollbackRefused) {
+          return { kind: "refused", reason: exc.reason, message: exc.message };
         }
         throw exc;
       }
@@ -1384,14 +1387,14 @@ async function rollbackCommand(args: string[]): Promise<number> {
     }),
   );
 
-  if (outcome.kind === "empty") {
-    return refuse(
-      "ksor-rollback-empty",
-      "rollback refused: no prior generation is recorded to roll back to\n" +
-        "  why: rollback restores the generation active before the last flip, and this corpus " +
-        "has none (rollback_generation is unset — nothing has superseded the active generation)\n" +
-        "  note: the active generation is unchanged",
-    );
+  if (outcome.kind === "refused") {
+    // `no-prior` → nothing was ever superseded; `already-rolled-back` → a
+    // second consecutive rollback would be a no-op. Distinct slugs so a caller
+    // can branch (product principle 4). The active generation is unchanged in
+    // both cases.
+    const slug =
+      outcome.reason === "already-rolled-back" ? "ksor-rollback-noop" : "ksor-rollback-empty";
+    return refuse(slug, `${outcome.message}\n  note: the active generation is unchanged`);
   }
   process.stdout.write(
     `rollback: restored generation ${outcome.restored} to serving ` +

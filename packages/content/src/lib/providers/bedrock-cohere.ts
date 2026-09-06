@@ -27,11 +27,11 @@ import {
   bedrockCohereRestEmbedClient,
   type BedrockCohereEmbedClient,
 } from "./bedrock-cohere-rest.js";
-import { isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
+import { isFatal, isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
 
 // Re-exported so existing importers (and the plane taxonomy's home) keep a
 // single name; the implementation lives once, in the shared transport.
-export { isRetryable, isRetryableQuery } from "./bedrock-rest.js";
+export { isFatal, isRetryable, isRetryableQuery } from "./bedrock-rest.js";
 
 export interface BedrockCohereEmbeddingProviderOptions {
   modelId: string;
@@ -105,5 +105,9 @@ export class BedrockCohereEmbeddingProvider implements EmbeddingProvider {
 
   isRetryableQuery(exc: unknown): boolean {
     return isRetryableQuery(exc);
+  }
+
+  isFatal(exc: unknown): boolean {
+    return isFatal(exc);
   }
 }

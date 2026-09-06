@@ -9,8 +9,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BedrockCredentialsError,
   BedrockHttpError,
   bedrockInvokeModel,
+  isFatal,
   isRetryable,
   isRetryableQuery,
   type BedrockTransportOptions,
@@ -168,5 +170,69 @@ describe("shared retry planes", () => {
     const blip = Object.assign(new Error("aborted"), { name: "AbortError" });
     expect(isRetryableQuery(blip)).toBe(true);
     expect(isRetryable(blip)).toBe(true);
+  });
+});
+
+describe("fatal (account-level) classification", () => {
+  it("401 and 403 are FATAL — the drain aborts rather than quarantining chunks", () => {
+    expect(isFatal(new BedrockHttpError(401, "invalid signature"))).toBe(true);
+    expect(isFatal(new BedrockHttpError(403, "AccessDeniedException"))).toBe(true);
+  });
+
+  it("a credential-resolution failure is FATAL", () => {
+    expect(isFatal(new BedrockCredentialsError("no creds"))).toBe(true);
+  });
+
+  it("a throttle, a 5xx, a 400 and a transport blip are NOT fatal", () => {
+    expect(isFatal(new BedrockHttpError(429, "throttled"))).toBe(false);
+    expect(isFatal(new BedrockHttpError(503, "unavailable"))).toBe(false);
+    expect(isFatal(new BedrockHttpError(400, "validation"))).toBe(false);
+    expect(isFatal(Object.assign(new Error("aborted"), { name: "AbortError" }))).toBe(false);
+    expect(isFatal("not an error")).toBe(false);
+  });
+
+  it("401/403 are also non-retryable on both planes (fatal beats retry)", () => {
+    for (const status of [401, 403]) {
+      expect(isRetryable(new BedrockHttpError(status, "auth")), `ingest ${status}`).toBe(false);
+      expect(isRetryableQuery(new BedrockHttpError(status, "auth")), `read ${status}`).toBe(false);
+    }
+  });
+});
+
+/**
+ * KNOWN-ANSWER TEST. The expected Authorization was computed by a SEPARATE,
+ * from-scratch SigV4 implementation (not this module's signer) for pinned
+ * inputs, and is frozen here as a literal. If `bedrockInvokeModel`'s signing
+ * ever drifts — a header reordered, the scope malformed, the payload hash
+ * miscomputed — this breaks with the exact byte difference. Inputs: the AWS
+ * example access key, region us-east-1, service bedrock, a fixed clock and a
+ * fixed Titan body, long-lived credentials (no session token).
+ */
+describe("SigV4 known-answer (independent reference)", () => {
+  const KAT_BODY = JSON.stringify({ inputText: "hello", dimensions: 1024, normalize: true });
+  const KAT_PAYLOAD_SHA256 = "a9a850aef577d262f26171c29ce07b91152cf6b2b0e7d75308c4f9c52c5c2866";
+  const KAT_AUTHORIZATION =
+    "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260115/us-east-1/bedrock/aws4_request, " +
+    "SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, " +
+    "Signature=f4f4fe48631e4514a9d3080670030802667f087706ca520449e1dfa1c7ed5b19";
+
+  it("produces the frozen Authorization header for the pinned request", async () => {
+    const { impl, calls } = capturingFetch(
+      new Response(JSON.stringify({ embedding: [0] }), { status: 200 }),
+    );
+    await bedrockInvokeModel(
+      {
+        region: "us-east-1",
+        credentials: async () => ({
+          accessKeyId: "AKIDEXAMPLE",
+          secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        }),
+        fetchImpl: impl,
+        clock: () => new Date("2026-01-15T12:00:00.000Z"),
+      },
+      { model: "amazon.titan-embed-text-v2:0", body: KAT_BODY, timeoutMs: 1000 },
+    );
+    expect(calls[0]!.headers["x-amz-content-sha256"]).toBe(KAT_PAYLOAD_SHA256);
+    expect(calls[0]!.headers["authorization"]).toBe(KAT_AUTHORIZATION);
   });
 });

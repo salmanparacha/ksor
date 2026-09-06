@@ -184,3 +184,37 @@ export function isRetryableQuery(exc: unknown): boolean {
   const status = httpStatusOf(exc);
   return status !== undefined && status >= 500 && status <= 599;
 }
+
+/**
+ * A failure to RESOLVE AWS credentials at call time — no credentials in the
+ * environment, or an AgentCore/ECS workload-role endpoint that refused. It is
+ * an ACCOUNT/ENVIRONMENT failure, not a property of any passage, so the ingest
+ * drain must abort on it (see `isFatal`) rather than quarantine chunks for a
+ * reason that has nothing to do with them.
+ */
+export class BedrockCredentialsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BedrockCredentialsError";
+  }
+}
+
+/**
+ * The ACCOUNT-level classification (`EmbeddingProvider.isFatal`): true when no
+ * amount of waiting and no other passage changes the outcome, so the ingest
+ * drain aborts with the queue left PENDING instead of quarantining chunk after
+ * chunk. For Bedrock that is:
+ *
+ *   - a credential-resolution failure (`BedrockCredentialsError`) — no creds,
+ *     or a workload-role endpoint that refused; and
+ *   - HTTP 401 / 403 — an expired or invalid signature, `AccessDeniedException`,
+ *     or the account/role lacking `bedrock:InvokeModel` on the model. Retrying
+ *     these burns quota and, worse, marking every chunk `failed` would record an
+ *     auth problem as a corpus of poisoned passages. The operator fixes the
+ *     credential or the model grant and re-runs; resume embeds what this run did
+ *     not.
+ */
+export function isFatal(exc: unknown): boolean {
+  if (exc instanceof BedrockCredentialsError) return true;
+  return exc instanceof BedrockHttpError && (exc.status === 401 || exc.status === 403);
+}

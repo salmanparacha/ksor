@@ -18,7 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { BedrockHttpError } from "./bedrock-rest.js";
+import { BedrockCredentialsError, BedrockHttpError } from "./bedrock-rest.js";
 import { BedrockTitanEmbeddingProvider } from "./bedrock-titan.js";
 import {
   bedrockTitanRestEmbedClient,
@@ -96,6 +96,14 @@ describe("what reaches the wire (symmetric)", () => {
     const p = new BedrockTitanEmbeddingProvider({ ...opts });
     expect(p.recipe).toBe("amazon.titan-embed-text-v2:0/d1024/");
     expect(p.providerId).toBe("bedrock-titan");
+  });
+
+  it("classifies 401/403 and credential failures as FATAL (aborts the drain), 429 as not", () => {
+    const p = new BedrockTitanEmbeddingProvider({ ...opts });
+    expect(p.isFatal?.(new BedrockHttpError(403, "AccessDeniedException"))).toBe(true);
+    expect(p.isFatal?.(new BedrockHttpError(401, "invalid signature"))).toBe(true);
+    expect(p.isFatal?.(new BedrockCredentialsError("no creds"))).toBe(true);
+    expect(p.isFatal?.(new BedrockHttpError(429, "throttled"))).toBe(false);
   });
 });
 
