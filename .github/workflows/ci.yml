@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The browser walkthrough (the ~14-min long pole) is deferred to these two
+  # triggers so PRs and merges stay ~2-3 min; see the scaffold-e2e job's `if:`.
+  schedule:
+    - cron: "0 7 * * *" # nightly, 07:00 UTC — runs the full matrix incl. browser
+  workflow_dispatch:
 
 # Least privilege by default; jobs that need more must say so.
 permissions:
@@ -130,6 +135,18 @@ jobs:
 
   scaffold-e2e:
     name: Scaffold walkthrough (browser)
+    # OFF the PR/merge critical path: at ~14 min it is the long pole, and CI
+    # jobs run in parallel so it alone set the time-to-green. It now runs
+    # NIGHTLY and on demand (workflow_dispatch), and on a PR only when the
+    # `full-ci` label is present. PRs and merges no longer wait on it (~2-3 min
+    # to green); main is still covered nightly, and a release runs the rest of
+    # the suite on its tag. Not a required status check, so skipping never
+    # blocks a merge.
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: ubuntu-latest
     # ~8-11 min normally (playwright install + 3 browser suites) — measured
     # 8.3 and 10.2 min on main and 8.5 on a branch, 2026-08-27. The comment
