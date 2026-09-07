@@ -60,6 +60,20 @@ export interface BedrockTransportOptions {
 
 const SERVICE = "bedrock";
 
+/**
+ * RFC 3986 / AWS SigV4 encoding of ONE path segment. `encodeURIComponent`
+ * leaves `!*'()` unescaped, which AWS requires escaped, so those are fixed up;
+ * the unreserved set `A-Za-z0-9-._~` is left alone. Applied to a single
+ * segment only — it never sees a `/`, so separators are preserved by the
+ * caller joining segments with `/`.
+ */
+function awsUriEncodeSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(
+    /[!*'()]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
 const sha256hex = (data: string): string => createHash("sha256").update(data).digest("hex");
 const hmac = (key: string | Buffer, data: string): Buffer =>
   createHmac("sha256", key).update(data).digest();
@@ -90,7 +104,23 @@ export async function bedrockInvokeModel(
   const now = (opts.clock ?? ((): Date => new Date()))();
   const creds = await opts.credentials();
 
-  const canonicalUri = `/model/${encodeURIComponent(params.model)}/invoke`;
+  // The path has ONE variable segment — the model id — which may contain
+  // reserved chars (`amazon.titan-embed-text-v2:0` has a `:`). Two forms are
+  // needed and they are NOT the same:
+  //   * wireUri: each segment encoded ONCE (`:` -> `%3A`). This is what goes on
+  //     the wire; Bedrock routes on it.
+  //   * canonicalUri: the SigV4 canonical URI, each segment encoded AGAIN
+  //     (`%3A` -> `%253A`), per the AWS rule for every service except S3. This
+  //     is what the string-to-sign is computed over. Signing the wire form
+  //     makes Bedrock reject Titan with 403 SignatureDoesNotMatch, because it
+  //     canonicalizes the double-encoded form.
+  // Path separators are preserved: `/model` and `/invoke` are fixed literals
+  // and only the model segment is encoded — the whole path is never blindly run
+  // through the encoder.
+  const modelWire = awsUriEncodeSegment(params.model);
+  const modelCanonical = awsUriEncodeSegment(modelWire);
+  const wireUri = `/model/${modelWire}/invoke`;
+  const canonicalUri = `/model/${modelCanonical}/invoke`;
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, ""); // YYYYMMDDTHHMMSSZ
   const dateStamp = amzDate.slice(0, 8);
   const payloadHash = sha256hex(params.body);
@@ -130,7 +160,7 @@ export async function bedrockInvokeModel(
     headers["x-amz-security-token"] = creds.sessionToken;
   }
 
-  const res = await doFetch(`https://${host}${canonicalUri}`, {
+  const res = await doFetch(`https://${host}${wireUri}`, {
     method: "POST",
     headers,
     body: params.body,
