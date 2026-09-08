@@ -88,6 +88,27 @@ export interface Security {
  * the Host default; a real HTTP client always sends Host, so a blank one is
  * never allowlisted.
  */
+/**
+ * A SAFE one-line diagnostic for an auth-verify rejection. Detailed context is
+ * emitted ONLY for a `TokenVerifyError` — whose message is ours and carries no
+ * secret (e.g. "token aud X not in allowlist Y"), never the raw token. ANY
+ * other thrown value logs a FIXED category and NOTHING from the value itself:
+ * an unexpected error could carry attacker-influenced or sensitive content, so
+ * its message and shape never reach the log. The known message is stripped of
+ * CR/LF (no log-forging) and length-bounded.
+ */
+const MAX_DIAG_CHARS = 200;
+export function authRejectionLine(surface: "mcp" | "health", error: unknown): string {
+  const code = error instanceof TokenVerifyError && error.transient ? "503 transient" : "401";
+  const head = `${surface} auth rejected (${code}): `;
+  if (error instanceof TokenVerifyError) {
+    const clean = error.message.replace(/[\r\n]+/g, " ").slice(0, MAX_DIAG_CHARS);
+    return `${head}${clean}`;
+  }
+  // Unknown error: fixed category only. Never the message or the thrown value.
+  return `${head}unexpected verifier error`;
+}
+
 export function resolveSecurity(bind: { host: string; port: number }): Security {
   const explicit = transportSecurityFromEnv(process.env);
   const loopback = bind.host === "127.0.0.1" || bind.host === "localhost" || bind.host === "::1";
@@ -372,10 +393,7 @@ export async function runHttp(composition: Composition): Promise<ServerType> {
         await auth.verify(token);
       } catch (error) {
         const transient = error instanceof TokenVerifyError && error.transient;
-        console.error(
-          `health auth rejected (${transient ? "503 transient" : "401"}): ` +
-            `${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
-        );
+        console.error(authRejectionLine("health", error));
         return c.json(
           { error: transient ? "token verification temporarily unavailable" : "invalid token" },
           transient ? 503 : 401,
@@ -620,15 +638,10 @@ export async function runHttp(composition: Composition): Promise<ServerType> {
         identity = await auth.verify(token);
       } catch (error) {
         const transient = error instanceof TokenVerifyError && error.transient;
-        // Log WHY the token was rejected. The handler otherwise returns a
-        // generic "invalid token" and logs nothing, so an operator has no way
-        // to tell an audience mismatch from a JWKS-fetch failure from a bad
-        // issuer. The error message carries safe context (e.g. "aud X not in
-        // allowlist Y") and never the raw token.
-        console.error(
-          `mcp auth rejected (${transient ? "503 transient" : "401"}): ` +
-            `${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
-        );
+        // Log WHY the token was rejected — safely. Detailed context ONLY for a
+        // TokenVerifyError (our own message, no secret); any other thrown value
+        // logs a fixed category and nothing from the value. See authRejectionLine.
+        console.error(authRejectionLine("mcp", error));
         // EVERY 401 carries the challenge, not just the one for a missing
         // token. The MCP authorization spec requires `WWW-Authenticate` on a
         // 401 without qualification, and the case this branch serves — a token
