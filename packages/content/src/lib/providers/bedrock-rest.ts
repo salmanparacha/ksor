@@ -56,6 +56,71 @@ export interface BedrockTransportOptions {
    * a test can assert the exact string rather than only its shape.
    */
   readonly clock?: () => Date;
+  /**
+   * Awaited ONCE before each InvokeModel request. Titan V2's on-demand cap is
+   * 60 requests/min and is NOT adjustable, so a burst of sequential embeds
+   * trips it (429) and the ingest refuses. Wire `makeRpmPacer(...)` here to
+   * throttle to a safe rate; omit it (or pass a rate <= 0) to leave requests
+   * unpaced — for provisioned-throughput deployments, or the read path where a
+   * single query embed is nowhere near the cap.
+   */
+  readonly pace?: () => Promise<void>;
+}
+
+/**
+ * The process-wide ingest pacer, shared by EVERY Bedrock vendor and call,
+ * because the per-minute InvokeModel cap is a property of the ACCOUNT, not of a
+ * model. Read once from `KSOR_BEDROCK_MAX_RPM` (default 50 — a safety margin
+ * under Titan V2's non-adjustable 60/min); set it to 0 to disable pacing for a
+ * provisioned-throughput deployment. Wire the returned hook into
+ * `BedrockTransportOptions.pace`.
+ */
+let sharedIngestPacer: (() => Promise<void>) | undefined;
+export function ingestPacer(): () => Promise<void> {
+  if (sharedIngestPacer === undefined) {
+    const rpm = Number.parseInt(process.env["KSOR_BEDROCK_MAX_RPM"] ?? "50", 10);
+    sharedIngestPacer = makeRpmPacer(Number.isFinite(rpm) ? rpm : 50);
+  }
+  return sharedIngestPacer;
+}
+/**
+ * A STRICT paced schedule: at most one call every `60000/rpm` ms, capacity ONE
+ * (no initial burst). The first call passes immediately; each subsequent call
+ * waits until `interval` has elapsed since the previous call was released, so a
+ * run of N calls at `rpm` takes at least `(N-1) * interval` ms — never bursting
+ * up to `rpm` at once the way a full token bucket would. `rpm <= 0` disables
+ * pacing (returns a no-op). Clock and sleep are injectable for deterministic
+ * tests. This is stricter than a token bucket on purpose: Bedrock's per-minute
+ * cap is enforced as a rate, and a burst of `rpm` calls in the first second
+ * still trips it even though the minute's average is under the cap.
+ */
+export function makeRpmPacer(
+  rpm: number,
+  deps?: { now?: () => number; sleep?: (ms: number) => Promise<void> },
+): () => Promise<void> {
+  if (rpm <= 0) return async (): Promise<void> => {};
+  const now = deps?.now ?? ((): number => Date.now());
+  const sleep =
+    deps?.sleep ?? ((ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)));
+  const intervalMs = 60_000 / rpm; // minimum spacing between releases
+  let nextAllowed = -Infinity; // the earliest instant the next call may be released
+  // Serialize so concurrent callers each take a distinct slot rather than all
+  // reading the same `nextAllowed` and colliding.
+  let chain: Promise<void> = Promise.resolve();
+  return (): Promise<void> => {
+    const run = chain.then(async () => {
+      const t = now();
+      const wait = Math.max(0, nextAllowed - t);
+      if (wait > 0) await sleep(wait);
+      // The slot this call occupies is the later of "now" and the reserved
+      // instant; the next call is spaced one interval after it.
+      const released = Math.max(now(), nextAllowed);
+      nextAllowed = released + intervalMs;
+    });
+    // Keep the chain alive even if a slot's sleep is interrupted.
+    chain = run.catch(() => {});
+    return run;
+  };
 }
 
 const SERVICE = "bedrock";
@@ -101,6 +166,12 @@ export async function bedrockInvokeModel(
 ): Promise<unknown> {
   const host = opts.hostOverride ?? `bedrock-runtime.${opts.region}.amazonaws.com`;
   const doFetch = opts.fetchImpl ?? fetch;
+  // Pace BEFORE the timestamp is fixed: this is the request that counts against
+  // the account's per-minute InvokeModel cap (Titan V2 = 60/min, not
+  // adjustable). Waiting here — not after signing — keeps `amzDate` equal to
+  // when the request actually goes out, so a paced wait never drifts the
+  // signature toward Bedrock's clock-skew tolerance.
+  if (opts.pace !== undefined) await opts.pace();
   const now = (opts.clock ?? ((): Date => new Date()))();
   const creds = await opts.credentials();
 

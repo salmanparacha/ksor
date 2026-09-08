@@ -15,6 +15,7 @@ import {
   isFatal,
   isRetryable,
   isRetryableQuery,
+  makeRpmPacer,
   type BedrockTransportOptions,
 } from "./bedrock-rest.js";
 
@@ -282,5 +283,93 @@ describe("SigV4 known-answer (independent reference)", () => {
     );
     expect(calls[0]!.headers["x-amz-content-sha256"]).toBe(KAT_PAYLOAD_SHA256);
     expect(calls[0]!.headers["authorization"]).toBe(KAT_AUTHORIZATION);
+  });
+});
+
+/**
+ * RATE LIMITING (#429). Titan V2's on-demand cap is 60 requests/min and is NOT
+ * adjustable, so a burst of sequential InvokeModel calls trips it and the ingest
+ * refuses. The transport takes an injectable `pace` hook, called once before
+ * every InvokeModel request, so production can throttle to a safe rate while
+ * tests assert the pacing deterministically (no wall-clock timing).
+ */
+describe("per-call pacing hook", () => {
+  it("awaits the pace hook before each InvokeModel request", async () => {
+    const order: string[] = [];
+    const { impl } = capturingFetch(
+      new Response(JSON.stringify({ embedding: [0] }), { status: 200 }),
+    );
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      order.push("fetch");
+      return (await impl(url, init)) as Response;
+    }) as unknown as typeof fetch;
+    await bedrockInvokeModel(
+      {
+        region: "us-east-1",
+        credentials: stsCreds,
+        fetchImpl,
+        clock: FIXED_CLOCK,
+        pace: async () => {
+          order.push("pace");
+        },
+      },
+      { model: "m", body: "{}", timeoutMs: 1000 },
+    );
+    // The pace hook ran, and it ran BEFORE the network call.
+    expect(order).toEqual(["pace", "fetch"]);
+  });
+});
+
+/**
+ * The strict paced schedule `makeRpmPacer` releases at most one call per
+ * `60000/rpm` ms (capacity one, no burst). With a pinned clock it is
+ * deterministic: the first call passes at t0, and the Nth call cannot be
+ * released before `t0 + (N-1) * interval`.
+ */
+describe("makeRpmPacer strict paced schedule", () => {
+  it("at 50 rpm, request 51 cannot occur before 60 s after request 1", async () => {
+    // 50 rpm => interval 1200 ms. A driven clock: sleeps advance virtual time,
+    // and each call records the virtual instant at which it was released.
+    let nowMs = 0;
+    const releaseTimes: number[] = [];
+    const pacer = makeRpmPacer(50, {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms; // sleeping advances the clock
+      },
+    });
+    for (let i = 0; i < 51; i++) {
+      await pacer();
+      releaseTimes.push(nowMs);
+    }
+    // Request 1 is released at t=0; request 51 is the 50th interval later.
+    expect(releaseTimes[0]).toBe(0);
+    // 50 intervals * 1200 ms = 60000 ms. Request 51 must be at or after 60 s.
+    expect(releaseTimes[50]).toBeGreaterThanOrEqual(60_000);
+    // And it is not released EARLY — exactly on the schedule for a pinned clock.
+    expect(releaseTimes[50]).toBe(60_000);
+  });
+
+  it("the first call passes immediately; the second waits one interval (no burst)", async () => {
+    let nowMs = 5_000;
+    const sleeps: number[] = [];
+    const pacer = makeRpmPacer(60, {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        nowMs += ms;
+      },
+    });
+    await pacer(); // first: no wait
+    expect(sleeps).toEqual([]);
+    await pacer(); // second: waits one 1000 ms interval (60 rpm => 1000 ms)
+    expect(sleeps).toEqual([1000]);
+  });
+
+  it("rpm <= 0 disables pacing (never waits)", async () => {
+    const sleeps: number[] = [];
+    const pacer = makeRpmPacer(0, { now: () => 0, sleep: async (ms) => void sleeps.push(ms) });
+    for (let i = 0; i < 1000; i++) await pacer();
+    expect(sleeps).toEqual([]);
   });
 });

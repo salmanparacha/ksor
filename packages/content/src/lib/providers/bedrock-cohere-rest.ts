@@ -39,6 +39,9 @@ export interface BedrockCohereEmbedClient {
     input: readonly string[];
     inputType: string;
     timeoutMs: number;
+    /** Awaited before the InvokeModel call. Set for `document` intent, OMITTED
+     * for `query`, so a read never joins the ingest queue. */
+    pace?: () => Promise<void>;
   }): Promise<{ embeddings: ReadonlyArray<{ values?: number[] }> }>;
 }
 
@@ -66,11 +69,14 @@ export function bedrockCohereRestEmbedClient(
       // Bare `embeddings_floats`: { embeddings: [[...1024...]], ... }. Order
       // follows the input `texts` order (single-array response), so no per-item
       // index to sort by — unlike OpenAI.
-      const json = (await bedrockInvokeModel(opts, {
-        model: params.model,
-        body,
-        timeoutMs: params.timeoutMs,
-      })) as { embeddings?: number[][] };
+      const json = (await bedrockInvokeModel(
+        { ...opts, pace: params.pace },
+        {
+          model: params.model,
+          body,
+          timeoutMs: params.timeoutMs,
+        },
+      )) as { embeddings?: number[][] };
       const rows = json.embeddings ?? [];
       return { embeddings: rows.map((values) => ({ values })) };
     },

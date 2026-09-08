@@ -22,7 +22,13 @@
  */
 
 import type { EmbeddingProvider, Intent } from "../embedding.js";
-import { isFatal, isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
+import {
+  ingestPacer,
+  isFatal,
+  isRetryable,
+  isRetryableQuery,
+  type CredentialProvider,
+} from "./bedrock-rest.js";
 import { bedrockTitanRestEmbedClient, type BedrockTitanEmbedClient } from "./bedrock-titan-rest.js";
 
 // Re-exported so the plane taxonomy has one name here too; the implementation
@@ -91,6 +97,10 @@ export class BedrockTitanEmbeddingProvider implements EmbeddingProvider {
       input: texts,
       dimensions: this.dim,
       timeoutMs: isDoc ? this.documentTimeoutMs : this.queryTimeoutMs,
+      // Pace ONLY the ingest (document) plane. A query MUST bypass the pacer so
+      // a throttled read degrades to keyword-only PROMPTLY instead of waiting
+      // in the ingest queue behind thousands of document embeds.
+      pace: isDoc ? ingestPacer() : undefined,
     });
     return resp.embeddings.map((e) => [...(e.values ?? [])]);
   }

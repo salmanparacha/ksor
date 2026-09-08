@@ -27,7 +27,13 @@ import {
   bedrockCohereRestEmbedClient,
   type BedrockCohereEmbedClient,
 } from "./bedrock-cohere-rest.js";
-import { isFatal, isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
+import {
+  ingestPacer,
+  isFatal,
+  isRetryable,
+  isRetryableQuery,
+  type CredentialProvider,
+} from "./bedrock-rest.js";
 
 // Re-exported so existing importers (and the plane taxonomy's home) keep a
 // single name; the implementation lives once, in the shared transport.
@@ -95,6 +101,9 @@ export class BedrockCohereEmbeddingProvider implements EmbeddingProvider {
       input: texts,
       inputType: isDoc ? this.documentTaskLabel : this.queryTaskLabel,
       timeoutMs: isDoc ? this.documentTimeoutMs : this.queryTimeoutMs,
+      // Pace ONLY the ingest (document) plane; a query bypasses the pacer so a
+      // throttled read degrades promptly instead of queueing behind ingest.
+      pace: isDoc ? ingestPacer() : undefined,
     });
     return resp.embeddings.map((e) => [...(e.values ?? [])]);
   }
