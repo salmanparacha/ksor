@@ -27,7 +27,13 @@ import {
   bedrockCohereRestEmbedClient,
   type BedrockCohereEmbedClient,
 } from "./bedrock-cohere-rest.js";
-import { isFatal, isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
+import {
+  ingestPacer,
+  isFatal,
+  isRetryable,
+  isRetryableQuery,
+  type CredentialProvider,
+} from "./bedrock-rest.js";
 
 // Re-exported so existing importers (and the plane taxonomy's home) keep a
 // single name; the implementation lives once, in the shared transport.
@@ -69,7 +75,11 @@ export class BedrockCohereEmbeddingProvider implements EmbeddingProvider {
     this.clientFactory =
       opts.clientFactory ??
       ((): BedrockCohereEmbedClient =>
-        bedrockCohereRestEmbedClient({ region: opts.region, credentials: opts.credentials }));
+        bedrockCohereRestEmbedClient({
+          region: opts.region,
+          credentials: opts.credentials,
+          pace: ingestPacer(),
+        }));
   }
 
   get recipe(): string {

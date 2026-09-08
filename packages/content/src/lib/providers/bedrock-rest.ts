@@ -56,6 +56,63 @@ export interface BedrockTransportOptions {
    * a test can assert the exact string rather than only its shape.
    */
   readonly clock?: () => Date;
+  /**
+   * Awaited ONCE before each InvokeModel request. Titan V2's on-demand cap is
+   * 60 requests/min and is NOT adjustable, so a burst of sequential embeds
+   * trips it (429) and the ingest refuses. Wire `makeRpmPacer(...)` here to
+   * throttle to a safe rate; omit it (or pass a rate <= 0) to leave requests
+   * unpaced — for provisioned-throughput deployments, or the read path where a
+   * single query embed is nowhere near the cap.
+   */
+  readonly pace?: () => Promise<void>;
+}
+
+/**
+ * The process-wide ingest pacer, shared by EVERY Bedrock vendor and call,
+ * because the per-minute InvokeModel cap is a property of the ACCOUNT, not of a
+ * model. Read once from `KSOR_BEDROCK_MAX_RPM` (default 50 — a safety margin
+ * under Titan V2's non-adjustable 60/min); set it to 0 to disable pacing for a
+ * provisioned-throughput deployment. Wire the returned hook into
+ * `BedrockTransportOptions.pace`.
+ */
+let sharedIngestPacer: (() => Promise<void>) | undefined;
+export function ingestPacer(): () => Promise<void> {
+  if (sharedIngestPacer === undefined) {
+    const rpm = Number.parseInt(process.env["KSOR_BEDROCK_MAX_RPM"] ?? "50", 10);
+    sharedIngestPacer = makeRpmPacer(Number.isFinite(rpm) ? rpm : 50);
+  }
+  return sharedIngestPacer;
+}
+/**
+ * A token-bucket pacer gating to at most `rpm` calls per minute. The bucket
+ * starts full (capacity `rpm`) so a small ingest never waits; a sustained
+ * ingest settles to one call per `60000/rpm` ms. `rpm <= 0` disables pacing
+ * (returns a no-op). Clock and sleep are injectable for deterministic tests.
+ */
+export function makeRpmPacer(
+  rpm: number,
+  deps?: { now?: () => number; sleep?: (ms: number) => Promise<void> },
+): () => Promise<void> {
+  if (rpm <= 0) return async (): Promise<void> => {};
+  const now = deps?.now ?? ((): number => Date.now());
+  const sleep =
+    deps?.sleep ?? ((ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)));
+  const refillMs = 60_000 / rpm; // ms per token
+  const capacity = rpm;
+  let tokens = capacity;
+  let last = now();
+  return async (): Promise<void> => {
+    for (;;) {
+      const t = now();
+      tokens = Math.min(capacity, tokens + (t - last) / refillMs);
+      last = t;
+      if (tokens >= 1) {
+        tokens -= 1;
+        return;
+      }
+      await sleep(Math.ceil((1 - tokens) * refillMs));
+    }
+  };
 }
 
 const SERVICE = "bedrock";
@@ -101,6 +158,12 @@ export async function bedrockInvokeModel(
 ): Promise<unknown> {
   const host = opts.hostOverride ?? `bedrock-runtime.${opts.region}.amazonaws.com`;
   const doFetch = opts.fetchImpl ?? fetch;
+  // Pace BEFORE the timestamp is fixed: this is the request that counts against
+  // the account's per-minute InvokeModel cap (Titan V2 = 60/min, not
+  // adjustable). Waiting here — not after signing — keeps `amzDate` equal to
+  // when the request actually goes out, so a paced wait never drifts the
+  // signature toward Bedrock's clock-skew tolerance.
+  if (opts.pace !== undefined) await opts.pace();
   const now = (opts.clock ?? ((): Date => new Date()))();
   const creds = await opts.credentials();
 

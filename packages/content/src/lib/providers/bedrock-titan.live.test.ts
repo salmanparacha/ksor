@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 
 import { bedrockTitanRestEmbedClient } from "./bedrock-titan-rest.js";
+import { ingestPacer } from "./bedrock-rest.js";
 
 const live =
   process.env["KSOR_LIVE_BEDROCK"] === "1" && (process.env["AWS_ACCESS_KEY_ID"] ?? "") !== "";
@@ -34,6 +35,33 @@ describe.runIf(live)("Titan V2 — live Bedrock InvokeModel (us-east-1)", () => 
     expect(Array.isArray(v)).toBe(true);
     expect(v!.length).toBe(1024);
   });
+
+  it("embeds a burst above the per-minute cap without a 429, when paced", async () => {
+    const credentials = async () => ({
+      accessKeyId: process.env["AWS_ACCESS_KEY_ID"]!,
+      secretAccessKey: process.env["AWS_SECRET_ACCESS_KEY"]!,
+      sessionToken: process.env["AWS_SESSION_TOKEN"] || undefined,
+    });
+    // 70 calls > Titan V2's 60/min cap; unpaced this 429s (reproduced live).
+    // With the shared pacer (KSOR_BEDROCK_MAX_RPM, default 50) the run does not
+    // throw — the pacer keeps it under the cap, so every input embeds.
+    const client = bedrockTitanRestEmbedClient({
+      region: "us-east-1",
+      credentials,
+      pace: ingestPacer(),
+    });
+    const input = Array.from({ length: 70 }, (_, i) => `paced ingest probe chunk ${i}`);
+    const res = await client.embed({
+      model: "amazon.titan-embed-text-v2:0",
+      input,
+      dimensions: 1024,
+      timeoutMs: 20000,
+    });
+    const embedded = res.embeddings.filter(
+      (e) => Array.isArray(e.values) && e.values!.length === 1024,
+    ).length;
+    expect(embedded).toBe(70);
+  }, 180_000);
 });
 
 describe.runIf(!live)("Titan V2 — live Bedrock (gated)", () => {

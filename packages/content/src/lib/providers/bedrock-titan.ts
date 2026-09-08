@@ -22,7 +22,13 @@
  */
 
 import type { EmbeddingProvider, Intent } from "../embedding.js";
-import { isFatal, isRetryable, isRetryableQuery, type CredentialProvider } from "./bedrock-rest.js";
+import {
+  ingestPacer,
+  isFatal,
+  isRetryable,
+  isRetryableQuery,
+  type CredentialProvider,
+} from "./bedrock-rest.js";
 import { bedrockTitanRestEmbedClient, type BedrockTitanEmbedClient } from "./bedrock-titan-rest.js";
 
 // Re-exported so the plane taxonomy has one name here too; the implementation
@@ -65,7 +71,11 @@ export class BedrockTitanEmbeddingProvider implements EmbeddingProvider {
     this.clientFactory =
       opts.clientFactory ??
       ((): BedrockTitanEmbedClient =>
-        bedrockTitanRestEmbedClient({ region: opts.region, credentials: opts.credentials }));
+        bedrockTitanRestEmbedClient({
+          region: opts.region,
+          credentials: opts.credentials,
+          pace: ingestPacer(),
+        }));
   }
 
   get recipe(): string {

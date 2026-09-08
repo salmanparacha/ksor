@@ -15,6 +15,7 @@ import {
   isFatal,
   isRetryable,
   isRetryableQuery,
+  makeRpmPacer,
   type BedrockTransportOptions,
 } from "./bedrock-rest.js";
 
@@ -282,5 +283,74 @@ describe("SigV4 known-answer (independent reference)", () => {
     );
     expect(calls[0]!.headers["x-amz-content-sha256"]).toBe(KAT_PAYLOAD_SHA256);
     expect(calls[0]!.headers["authorization"]).toBe(KAT_AUTHORIZATION);
+  });
+});
+
+/**
+ * RATE LIMITING (#429). Titan V2's on-demand cap is 60 requests/min and is NOT
+ * adjustable, so a burst of sequential InvokeModel calls trips it and the ingest
+ * refuses. The transport takes an injectable `pace` hook, called once before
+ * every InvokeModel request, so production can throttle to a safe rate while
+ * tests assert the pacing deterministically (no wall-clock timing).
+ */
+describe("per-call pacing hook", () => {
+  it("awaits the pace hook before each InvokeModel request", async () => {
+    const order: string[] = [];
+    const { impl } = capturingFetch(
+      new Response(JSON.stringify({ embedding: [0] }), { status: 200 }),
+    );
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      order.push("fetch");
+      return (await impl(url, init)) as Response;
+    }) as unknown as typeof fetch;
+    await bedrockInvokeModel(
+      {
+        region: "us-east-1",
+        credentials: stsCreds,
+        fetchImpl,
+        clock: FIXED_CLOCK,
+        pace: async () => {
+          order.push("pace");
+        },
+      },
+      { model: "m", body: "{}", timeoutMs: 1000 },
+    );
+    // The pace hook ran, and it ran BEFORE the network call.
+    expect(order).toEqual(["pace", "fetch"]);
+  });
+});
+
+/**
+ * The token-bucket pacer `makeRpmPacer` gates to N requests per minute. With a
+ * pinned clock it is deterministic: the first `rpm` calls pass without waiting
+ * (the bucket starts full), and the next call must wait until a token refills.
+ */
+describe("makeRpmPacer token bucket", () => {
+  it("passes the first rpm calls immediately, then waits for a refill", async () => {
+    let nowMs = 1_000_000;
+    const sleeps: number[] = [];
+    const pacer = makeRpmPacer(60, {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        nowMs += ms; // the sleep advances the clock
+      },
+    });
+    // 60 rpm => one token per 1000 ms, bucket capacity 60. The first 60 calls
+    // consume the full bucket with no sleep.
+    for (let i = 0; i < 60; i++) await pacer();
+    expect(sleeps).toEqual([]);
+    // The 61st call must wait ~1000 ms for the next token.
+    await pacer();
+    expect(sleeps.length).toBe(1);
+    expect(sleeps[0]).toBeGreaterThan(0);
+    expect(sleeps[0]).toBeLessThanOrEqual(1000);
+  });
+
+  it("rpm <= 0 disables pacing (never waits)", async () => {
+    const sleeps: number[] = [];
+    const pacer = makeRpmPacer(0, { now: () => 0, sleep: async (ms) => void sleeps.push(ms) });
+    for (let i = 0; i < 1000; i++) await pacer();
+    expect(sleeps).toEqual([]);
   });
 });
