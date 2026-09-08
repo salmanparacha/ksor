@@ -200,13 +200,61 @@ describe("fatal (account-level) classification", () => {
 });
 
 /**
+ * REGRESSION (#SigV4 double-encoding). A model id contains a reserved char —
+ * `amazon.titan-embed-text-v2:0` has a `:` — and SigV4's canonical URI is NOT
+ * the wire path: the wire path single-encodes the segment (`:` -> `%3A`), and
+ * the canonical URI used in the string-to-sign encodes it AGAIN (`%3A` ->
+ * `%253A`), per the AWS SigV4 rule for every service except S3. Signing over
+ * the single-encoded path (as the wire URL) makes Bedrock reject every Titan
+ * InvokeModel with 403 SignatureDoesNotMatch, because Bedrock canonicalizes the
+ * double-encoded form. This test pins BOTH: the wire URL keeps `%3A`, and the
+ * signature matches an independent reference computed over the `%253A`
+ * canonical URI. It fails against a signer that conflates the two.
+ */
+describe("SigV4 canonical URI is double-encoded, wire URI is single-encoded (#reserved-char model id)", () => {
+  const KAT_BODY = JSON.stringify({ inputText: "hello", dimensions: 1024, normalize: true });
+  // Independent reference signature computed over the DOUBLE-ENCODED canonical
+  // URI /model/amazon.titan-embed-text-v2%253A0/invoke for the pinned inputs.
+  const KAT_AUTHORIZATION_TITAN =
+    "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260115/us-east-1/bedrock/aws4_request, " +
+    "SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, " +
+    "Signature=99b78e974531b72ed4e049d5c1497025f77c5b682d82b3c5a2ccfd287da01e52";
+
+  it("keeps %3A on the wire but signs the %253A canonical URI", async () => {
+    const { impl, calls } = capturingFetch(
+      new Response(JSON.stringify({ embedding: [0] }), { status: 200 }),
+    );
+    await bedrockInvokeModel(
+      {
+        region: "us-east-1",
+        credentials: async () => ({
+          accessKeyId: "AKIDEXAMPLE",
+          secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        }),
+        fetchImpl: impl,
+        clock: () => new Date("2026-01-15T12:00:00.000Z"),
+      },
+      { model: "amazon.titan-embed-text-v2:0", body: KAT_BODY, timeoutMs: 1000 },
+    );
+    // Wire path: single-encoded ':' -> '%3A' (NOT double-encoded).
+    expect(calls[0]!.url).toBe(
+      "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.titan-embed-text-v2%3A0/invoke",
+    );
+    // Signature: computed over the double-encoded '%253A' canonical URI.
+    expect(calls[0]!.headers["authorization"]).toBe(KAT_AUTHORIZATION_TITAN);
+  });
+});
+
+/**
  * KNOWN-ANSWER TEST. The expected Authorization was computed by a SEPARATE,
  * from-scratch SigV4 implementation (not this module's signer) for pinned
  * inputs, and is frozen here as a literal. If `bedrockInvokeModel`'s signing
  * ever drifts — a header reordered, the scope malformed, the payload hash
  * miscomputed — this breaks with the exact byte difference. Inputs: the AWS
  * example access key, region us-east-1, service bedrock, a fixed clock and a
- * fixed Titan body, long-lived credentials (no session token).
+ * fixed Titan body, long-lived credentials (no session token). The model id
+ * contains a `:`, so the signature is over the DOUBLE-ENCODED canonical URI
+ * /model/amazon.titan-embed-text-v2%253A0/invoke.
  */
 describe("SigV4 known-answer (independent reference)", () => {
   const KAT_BODY = JSON.stringify({ inputText: "hello", dimensions: 1024, normalize: true });
@@ -214,7 +262,7 @@ describe("SigV4 known-answer (independent reference)", () => {
   const KAT_AUTHORIZATION =
     "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260115/us-east-1/bedrock/aws4_request, " +
     "SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, " +
-    "Signature=f4f4fe48631e4514a9d3080670030802667f087706ca520449e1dfa1c7ed5b19";
+    "Signature=99b78e974531b72ed4e049d5c1497025f77c5b682d82b3c5a2ccfd287da01e52";
 
   it("produces the frozen Authorization header for the pinned request", async () => {
     const { impl, calls } = capturingFetch(
