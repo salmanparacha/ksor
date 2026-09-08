@@ -372,6 +372,10 @@ export async function runHttp(composition: Composition): Promise<ServerType> {
         await auth.verify(token);
       } catch (error) {
         const transient = error instanceof TokenVerifyError && error.transient;
+        console.error(
+          `health auth rejected (${transient ? "503 transient" : "401"}): ` +
+            `${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+        );
         return c.json(
           { error: transient ? "token verification temporarily unavailable" : "invalid token" },
           transient ? 503 : 401,
@@ -616,6 +620,15 @@ export async function runHttp(composition: Composition): Promise<ServerType> {
         identity = await auth.verify(token);
       } catch (error) {
         const transient = error instanceof TokenVerifyError && error.transient;
+        // Log WHY the token was rejected. The handler otherwise returns a
+        // generic "invalid token" and logs nothing, so an operator has no way
+        // to tell an audience mismatch from a JWKS-fetch failure from a bad
+        // issuer. The error message carries safe context (e.g. "aud X not in
+        // allowlist Y") and never the raw token.
+        console.error(
+          `mcp auth rejected (${transient ? "503 transient" : "401"}): ` +
+            `${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+        );
         // EVERY 401 carries the challenge, not just the one for a missing
         // token. The MCP authorization spec requires `WWW-Authenticate` on a
         // 401 without qualification, and the case this branch serves — a token
