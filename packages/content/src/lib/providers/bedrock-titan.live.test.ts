@@ -12,7 +12,6 @@
 import { describe, expect, it } from "vitest";
 
 import { bedrockTitanRestEmbedClient } from "./bedrock-titan-rest.js";
-import { ingestPacer } from "./bedrock-rest.js";
 import { BedrockTitanEmbeddingProvider } from "./bedrock-titan.js";
 
 const live =
@@ -37,31 +36,40 @@ describe.runIf(live)("Titan V2 — live Bedrock InvokeModel (us-east-1)", () => 
     expect(v!.length).toBe(1024);
   });
 
-  it("embeds a burst above the per-minute cap without a 429, when paced", async () => {
+  it("paces > 60 real document-intent embeds under the cap: no 429, expected duration", async () => {
     const credentials = async () => ({
       accessKeyId: process.env["AWS_ACCESS_KEY_ID"]!,
       secretAccessKey: process.env["AWS_SECRET_ACCESS_KEY"]!,
       sessionToken: process.env["AWS_SESSION_TOKEN"] || undefined,
     });
-    // 70 calls > Titan V2's 60/min cap; unpaced this 429s (reproduced live).
-    // With the shared pacer (KSOR_BEDROCK_MAX_RPM, default 50) the run does not
-    // throw — the pacer keeps it under the cap, so every input embeds.
-    const client = bedrockTitanRestEmbedClient({
+    // Drive the ACTUAL provider document path — this is what ingest calls, so
+    // the pacer is wired exactly as in production (per-call, intent-scoped),
+    // not hand-passed. KSOR_BEDROCK_MAX_RPM defaults to 50.
+    const provider = new BedrockTitanEmbeddingProvider({
+      modelId: "amazon.titan-embed-text-v2:0",
+      dim: 1024,
+      documentTaskLabel: "",
+      queryTaskLabel: "",
+      documentTimeoutS: 20,
+      queryTimeoutS: 20,
       region: "us-east-1",
       credentials,
-      pace: ingestPacer(),
     });
-    const input = Array.from({ length: 70 }, (_, i) => `paced ingest probe chunk ${i}`);
-    const res = await client.embed({
-      model: "amazon.titan-embed-text-v2:0",
-      input,
-      dimensions: 1024,
-      timeoutMs: 20000,
-    });
-    const embedded = res.embeddings.filter(
-      (e) => Array.isArray(e.values) && e.values!.length === 1024,
-    ).length;
-    expect(embedded).toBe(70);
+    const rpm = Number.parseInt(process.env["KSOR_BEDROCK_MAX_RPM"] ?? "50", 10);
+    const N = 66; // > Titan V2's 60/min cap: an unpaced burst 429s here
+    const input = Array.from({ length: N }, (_, i) => `paced document embed ${i}`);
+    const t0 = Date.now();
+    // No throw == no 429 survived retry (429 IS fatal on ingest via isFatal),
+    // so completion is itself the "no 429" assertion.
+    const out = await provider.embed(input, { intent: "document" });
+    const elapsedMs = Date.now() - t0;
+    const embedded = out.filter((v) => v.length === 1024).length;
+    expect(embedded).toBe(N);
+    // Strict schedule: N calls take at least (N-1) * (60000/rpm) ms. Allow a
+    // small tolerance for clock granularity; the point is it is PACED, not
+    // bursted (an unpaced run would finish in a few seconds — and 429).
+    const minMs = (N - 1) * (60_000 / rpm);
+    expect(elapsedMs).toBeGreaterThanOrEqual(minMs * 0.9);
   }, 180_000);
 
   it("a query-intent embed through the provider is NOT paced (returns promptly)", async () => {

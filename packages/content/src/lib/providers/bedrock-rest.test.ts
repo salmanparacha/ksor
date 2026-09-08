@@ -321,30 +321,49 @@ describe("per-call pacing hook", () => {
 });
 
 /**
- * The token-bucket pacer `makeRpmPacer` gates to N requests per minute. With a
- * pinned clock it is deterministic: the first `rpm` calls pass without waiting
- * (the bucket starts full), and the next call must wait until a token refills.
+ * The strict paced schedule `makeRpmPacer` releases at most one call per
+ * `60000/rpm` ms (capacity one, no burst). With a pinned clock it is
+ * deterministic: the first call passes at t0, and the Nth call cannot be
+ * released before `t0 + (N-1) * interval`.
  */
-describe("makeRpmPacer token bucket", () => {
-  it("passes the first rpm calls immediately, then waits for a refill", async () => {
-    let nowMs = 1_000_000;
+describe("makeRpmPacer strict paced schedule", () => {
+  it("at 50 rpm, request 51 cannot occur before 60 s after request 1", async () => {
+    // 50 rpm => interval 1200 ms. A driven clock: sleeps advance virtual time,
+    // and each call records the virtual instant at which it was released.
+    let nowMs = 0;
+    const releaseTimes: number[] = [];
+    const pacer = makeRpmPacer(50, {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms; // sleeping advances the clock
+      },
+    });
+    for (let i = 0; i < 51; i++) {
+      await pacer();
+      releaseTimes.push(nowMs);
+    }
+    // Request 1 is released at t=0; request 51 is the 50th interval later.
+    expect(releaseTimes[0]).toBe(0);
+    // 50 intervals * 1200 ms = 60000 ms. Request 51 must be at or after 60 s.
+    expect(releaseTimes[50]).toBeGreaterThanOrEqual(60_000);
+    // And it is not released EARLY — exactly on the schedule for a pinned clock.
+    expect(releaseTimes[50]).toBe(60_000);
+  });
+
+  it("the first call passes immediately; the second waits one interval (no burst)", async () => {
+    let nowMs = 5_000;
     const sleeps: number[] = [];
     const pacer = makeRpmPacer(60, {
       now: () => nowMs,
       sleep: async (ms) => {
         sleeps.push(ms);
-        nowMs += ms; // the sleep advances the clock
+        nowMs += ms;
       },
     });
-    // 60 rpm => one token per 1000 ms, bucket capacity 60. The first 60 calls
-    // consume the full bucket with no sleep.
-    for (let i = 0; i < 60; i++) await pacer();
+    await pacer(); // first: no wait
     expect(sleeps).toEqual([]);
-    // The 61st call must wait ~1000 ms for the next token.
-    await pacer();
-    expect(sleeps.length).toBe(1);
-    expect(sleeps[0]).toBeGreaterThan(0);
-    expect(sleeps[0]).toBeLessThanOrEqual(1000);
+    await pacer(); // second: waits one 1000 ms interval (60 rpm => 1000 ms)
+    expect(sleeps).toEqual([1000]);
   });
 
   it("rpm <= 0 disables pacing (never waits)", async () => {

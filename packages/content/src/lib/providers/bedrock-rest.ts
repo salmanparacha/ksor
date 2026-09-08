@@ -84,10 +84,15 @@ export function ingestPacer(): () => Promise<void> {
   return sharedIngestPacer;
 }
 /**
- * A token-bucket pacer gating to at most `rpm` calls per minute. The bucket
- * starts full (capacity `rpm`) so a small ingest never waits; a sustained
- * ingest settles to one call per `60000/rpm` ms. `rpm <= 0` disables pacing
- * (returns a no-op). Clock and sleep are injectable for deterministic tests.
+ * A STRICT paced schedule: at most one call every `60000/rpm` ms, capacity ONE
+ * (no initial burst). The first call passes immediately; each subsequent call
+ * waits until `interval` has elapsed since the previous call was released, so a
+ * run of N calls at `rpm` takes at least `(N-1) * interval` ms — never bursting
+ * up to `rpm` at once the way a full token bucket would. `rpm <= 0` disables
+ * pacing (returns a no-op). Clock and sleep are injectable for deterministic
+ * tests. This is stricter than a token bucket on purpose: Bedrock's per-minute
+ * cap is enforced as a rate, and a burst of `rpm` calls in the first second
+ * still trips it even though the minute's average is under the cap.
  */
 export function makeRpmPacer(
   rpm: number,
@@ -97,21 +102,24 @@ export function makeRpmPacer(
   const now = deps?.now ?? ((): number => Date.now());
   const sleep =
     deps?.sleep ?? ((ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)));
-  const refillMs = 60_000 / rpm; // ms per token
-  const capacity = rpm;
-  let tokens = capacity;
-  let last = now();
-  return async (): Promise<void> => {
-    for (;;) {
+  const intervalMs = 60_000 / rpm; // minimum spacing between releases
+  let nextAllowed = -Infinity; // the earliest instant the next call may be released
+  // Serialize so concurrent callers each take a distinct slot rather than all
+  // reading the same `nextAllowed` and colliding.
+  let chain: Promise<void> = Promise.resolve();
+  return (): Promise<void> => {
+    const run = chain.then(async () => {
       const t = now();
-      tokens = Math.min(capacity, tokens + (t - last) / refillMs);
-      last = t;
-      if (tokens >= 1) {
-        tokens -= 1;
-        return;
-      }
-      await sleep(Math.ceil((1 - tokens) * refillMs));
-    }
+      const wait = Math.max(0, nextAllowed - t);
+      if (wait > 0) await sleep(wait);
+      // The slot this call occupies is the later of "now" and the reserved
+      // instant; the next call is spaced one interval after it.
+      const released = Math.max(now(), nextAllowed);
+      nextAllowed = released + intervalMs;
+    });
+    // Keep the chain alive even if a slot's sleep is interrupted.
+    chain = run.catch(() => {});
+    return run;
   };
 }
 
