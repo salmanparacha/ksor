@@ -1,5 +1,27 @@
 # @panaversity/ksor
 
+## 0.0.61-salman.4
+
+Fork release (salmanparacha/ksor) for the AWS HealthLake deployment — a tagged
+GitHub Release asset, not an npm publication.
+
+### Patch Changes
+
+- e63c1fc: feat(gateway): log why an MCP/health bearer token is rejected — safely
+
+  The gateway's `/mcp` and `/health` auth-verify catch blocks returned a generic
+  "invalid token" (401) and logged nothing, so an operator could not tell an
+  audience mismatch from a JWKS-fetch failure from a bad issuer — the door was
+  silent on why a live deployment rejected every token.
+
+  A new `authRejectionLine` helper now emits one safe diagnostic line: detailed
+  context ONLY for a `TokenVerifyError` (whose message is ours and carries no
+  token, e.g. "aud X not in allowlist Y"); for ANY other thrown value, a fixed
+  category "unexpected verifier error" and nothing from the value itself. The
+  known message is stripped of CR/LF (no log-forging) and length-bounded.
+  Response bodies and 401/503 status mapping are unchanged; tests prove a
+  sentinel bearer value never reaches `console.error` on either surface.
+
 ## 0.0.61-salman.3
 
 Fork release (salmanparacha/ksor) for the AWS HealthLake deployment — a tagged
