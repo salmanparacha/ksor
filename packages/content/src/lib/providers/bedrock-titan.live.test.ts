@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { bedrockTitanRestEmbedClient } from "./bedrock-titan-rest.js";
 import { ingestPacer } from "./bedrock-rest.js";
+import { BedrockTitanEmbeddingProvider } from "./bedrock-titan.js";
 
 const live =
   process.env["KSOR_LIVE_BEDROCK"] === "1" && (process.env["AWS_ACCESS_KEY_ID"] ?? "") !== "";
@@ -62,6 +63,32 @@ describe.runIf(live)("Titan V2 — live Bedrock InvokeModel (us-east-1)", () => 
     ).length;
     expect(embedded).toBe(70);
   }, 180_000);
+
+  it("a query-intent embed through the provider is NOT paced (returns promptly)", async () => {
+    const credentials = async () => ({
+      accessKeyId: process.env["AWS_ACCESS_KEY_ID"]!,
+      secretAccessKey: process.env["AWS_SECRET_ACCESS_KEY"]!,
+      sessionToken: process.env["AWS_SESSION_TOKEN"] || undefined,
+    });
+    const provider = new BedrockTitanEmbeddingProvider({
+      modelId: "amazon.titan-embed-text-v2:0",
+      dim: 1024,
+      documentTaskLabel: "",
+      queryTaskLabel: "",
+      documentTimeoutS: 20,
+      queryTimeoutS: 20,
+      region: "us-east-1",
+      credentials,
+    });
+    // A query embed must NOT touch the ingest pacer, so it returns in well under
+    // a second of network time — never delayed by a pacing bucket the ingest
+    // plane is draining.
+    const t0 = Date.now();
+    const out = await provider.embed(["a live query, unpaced"], { intent: "query" });
+    const elapsedMs = Date.now() - t0;
+    expect(out[0]!.length).toBe(1024);
+    expect(elapsedMs).toBeLessThan(3000);
+  }, 30_000);
 });
 
 describe.runIf(!live)("Titan V2 — live Bedrock (gated)", () => {

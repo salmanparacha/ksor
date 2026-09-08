@@ -71,6 +71,10 @@ export interface BedrockTitanEmbedClient {
     input: readonly string[];
     dimensions: number;
     timeoutMs: number;
+    /** Awaited once before each InvokeModel call. The provider passes the
+     * shared ingest pacer for `document` intent and OMITS it for `query`, so a
+     * read never joins the ingest queue. */
+    pace?: () => Promise<void>;
   }): Promise<{ embeddings: ReadonlyArray<{ values?: number[] }> }>;
 }
 
@@ -92,11 +96,16 @@ export function bedrockTitanRestEmbedClient(
           normalize: true,
         });
         // Titan response: { embedding: [...N...], inputTextTokenCount }.
-        const json = (await bedrockInvokeModel(opts, {
-          model: params.model,
-          body,
-          timeoutMs: params.timeoutMs,
-        })) as { embedding?: number[] };
+        // Pacing is PER CALL (params.pace), set by the provider from intent, so
+        // it overrides any transport-level pace.
+        const json = (await bedrockInvokeModel(
+          { ...opts, pace: params.pace },
+          {
+            model: params.model,
+            body,
+            timeoutMs: params.timeoutMs,
+          },
+        )) as { embedding?: number[] };
         out.push({ values: json.embedding });
       }
       return { embeddings: out };

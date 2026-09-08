@@ -46,8 +46,13 @@ const opts = {
 };
 
 function stub(vectors: number[][]) {
-  const calls: Array<{ model: string; dimensions: number; timeoutMs: number; input: string[] }> =
-    [];
+  const calls: Array<{
+    model: string;
+    dimensions: number;
+    timeoutMs: number;
+    input: string[];
+    paced: boolean;
+  }> = [];
   const client: BedrockTitanEmbedClient = {
     async embed(params) {
       calls.push({
@@ -55,12 +60,50 @@ function stub(vectors: number[][]) {
         dimensions: params.dimensions,
         timeoutMs: params.timeoutMs,
         input: [...params.input],
+        paced: params.pace !== undefined,
       });
       return { embeddings: vectors.map((values) => ({ values })) };
     },
   };
   return { client, calls };
 }
+
+describe("pacing is intent-scoped (document only, never query)", () => {
+  it("a document embed enters the pacer (pace is passed)", async () => {
+    const { client, calls } = stub([[1, 0, 0, 0]]);
+    const p = new BedrockTitanEmbeddingProvider({ ...opts, clientFactory: () => client });
+    await p.embed(["hello"], { intent: "document" });
+    expect(calls[0]!.paced).toBe(true);
+  });
+
+  it("a query embed NEVER enters the pacer (pace is omitted)", async () => {
+    const { client, calls } = stub([[0, 1, 0, 0]]);
+    const p = new BedrockTitanEmbeddingProvider({ ...opts, clientFactory: () => client });
+    await p.embed(["hello"], { intent: "query" });
+    expect(calls[0]!.paced).toBe(false);
+  });
+
+  it("a query degrades PROMPTLY under throttling instead of joining the ingest queue", async () => {
+    // The read plane must fail fast: no pacing wait, and 429 is NOT retried on a
+    // query (isRetryableQuery is false for 429), so a throttled read returns
+    // quickly to the caller (which degrades to keyword-only) rather than
+    // stalling behind an ingest pacer or a patient retry.
+    let paced = false;
+    const throttling: BedrockTitanEmbedClient = {
+      async embed(params) {
+        if (params.pace !== undefined) paced = true;
+        throw new BedrockHttpError(429, "Too many requests");
+      },
+    };
+    const p = new BedrockTitanEmbeddingProvider({ ...opts, clientFactory: () => throttling });
+    const t0 = Date.now();
+    await expect(p.embed(["q"], { intent: "query" })).rejects.toThrow(/429/);
+    const elapsedMs = Date.now() - t0;
+    expect(paced).toBe(false); // the query never touched the pacer
+    expect(p.isRetryableQuery(new BedrockHttpError(429, "x"))).toBe(false); // 429 not retried on read
+    expect(elapsedMs).toBeLessThan(500); // returned promptly, no pacing/queue wait
+  });
+});
 
 describe("what reaches the wire (symmetric)", () => {
   it("a document intent sends dimensions and the batch timeout", async () => {

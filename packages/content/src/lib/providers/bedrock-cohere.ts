@@ -75,11 +75,7 @@ export class BedrockCohereEmbeddingProvider implements EmbeddingProvider {
     this.clientFactory =
       opts.clientFactory ??
       ((): BedrockCohereEmbedClient =>
-        bedrockCohereRestEmbedClient({
-          region: opts.region,
-          credentials: opts.credentials,
-          pace: ingestPacer(),
-        }));
+        bedrockCohereRestEmbedClient({ region: opts.region, credentials: opts.credentials }));
   }
 
   get recipe(): string {
@@ -105,6 +101,9 @@ export class BedrockCohereEmbeddingProvider implements EmbeddingProvider {
       input: texts,
       inputType: isDoc ? this.documentTaskLabel : this.queryTaskLabel,
       timeoutMs: isDoc ? this.documentTimeoutMs : this.queryTimeoutMs,
+      // Pace ONLY the ingest (document) plane; a query bypasses the pacer so a
+      // throttled read degrades promptly instead of queueing behind ingest.
+      pace: isDoc ? ingestPacer() : undefined,
     });
     return resp.embeddings.map((e) => [...(e.values ?? [])]);
   }

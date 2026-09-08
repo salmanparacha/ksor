@@ -12,11 +12,15 @@ throttle and refuses (`ksor-refused`).
 The Bedrock transport now takes an injectable `pace` hook awaited once before
 each InvokeModel request, and a shared process-wide token-bucket pacer
 (`ingestPacer`, read from `KSOR_BEDROCK_MAX_RPM`, default 50 — a margin under
-60; set 0 to disable for provisioned throughput) is wired into both the Titan
-and Cohere ingest clients. Because the cap is per-account, the bucket is shared
-across vendors and calls. Pacing happens before the signature timestamp is
+60; set 0 to disable for provisioned throughput). Because the cap is
+per-account, the bucket is shared across vendors. Pacing is passed PER EMBED
+CALL and scoped to `intent: "document"` only — a `query` embed NEVER enters the
+pacer, so a throttled read still degrades to keyword-only promptly instead of
+joining the ingest queue. Pacing happens before the signature timestamp is
 fixed, so a paced wait never drifts the SigV4 signature.
 
-Verified by a deterministic token-bucket test, a pace-hook ordering test, and a
-gated live burst of 70 Titan embeds (above the 60/min cap) completing with zero
-429s in us-east-1.
+Verified by a deterministic token-bucket test, a pace-hook ordering test,
+intent-scoping tests (document paced, query never paced, query degrades
+promptly under throttling), and a gated live proof: a burst of 70 Titan
+document embeds (above the 60/min cap) completing with zero 429s, and a
+query-intent embed returning promptly without pacing — in us-east-1.
