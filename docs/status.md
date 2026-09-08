@@ -6,7 +6,7 @@ updated: 2026-09-02.
 
 ## Published package
 
-`@panaversity/ksor` **0.0.61-salman.1** as a `salmanparacha/ksor` GitHub Release
+`@panaversity/ksor` **0.0.61-salman.2** as a `salmanparacha/ksor` GitHub Release
 asset — the fork release for the AWS HealthLake deployment, NOT on npm (upstream
 0.0.60 remains the npm-published line, trusted publishing + provenance). It ships the working `ksor init` described below — including the
 visibility model and the deploy story — AND the bundled content kernel, so
