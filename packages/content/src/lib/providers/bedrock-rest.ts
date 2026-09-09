@@ -288,7 +288,7 @@ export function isRetryableQuery(exc: unknown): boolean {
 
 /**
  * A failure to RESOLVE AWS credentials at call time — no credentials in the
- * environment, or an AgentCore/ECS workload-role endpoint that refused. It is
+ * environment, or a container/MMDS/IMDS workload-role endpoint that refused. It is
  * an ACCOUNT/ENVIRONMENT failure, not a property of any passage, so the ingest
  * drain must abort on it (see `isFatal`) rather than quarantine chunks for a
  * reason that has nothing to do with them.
