@@ -506,8 +506,9 @@ shared SigV4 `InvokeModel` transport (`bedrock-rest.ts`): `bedrock-titan`
 (`amazon.titan-embed-text-v2:0`, 1024-dim, normalized, symmetric — the
 production model for the AWS HealthLake deployment) and `bedrock-cohere`
 (`cohere.embed-english-v3` — retained as the emergency rollback target).
-Credentials resolve at call time from an AgentCore/ECS workload-role endpoint
-(refreshed before expiry) or static `AWS_*` env vars; a credential failure or a
+Credentials resolve at call time from an ECS/EKS container workload-role
+endpoint, static `AWS_*` env vars, or AgentCore MMDSv2 / EC2 IMDSv2, in that
+order. Temporary credentials refresh before expiry; a credential failure or a
 `401`/`403` is FATAL to an ingest (the drain aborts, queue pending, rather than
 quarantining chunks). Titan refuses an over-50,000-character input rather than
 truncating it. See `packages/ksor/docs/deploying.md`.
