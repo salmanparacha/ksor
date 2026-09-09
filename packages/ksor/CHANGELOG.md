@@ -1,5 +1,22 @@
 # @panaversity/ksor
 
+## 0.0.61-salman.5
+
+Fork release (salmanparacha/ksor) for the AWS HealthLake deployment — a tagged
+GitHub Release asset, not an npm publication.
+
+### Patch Changes
+
+- 71d3a8f: fix(content): resolve AgentCore MMDSv2 credentials
+
+  The keyless Bedrock providers now resolve the AgentCore Runtime execution
+  role through MMDSv2 after checking container and static environment
+  credentials. Temporary credentials are cached and refreshed before expiry;
+  metadata failures remain fatal account/environment errors, and credential
+  response fragments are never echoed into diagnostics. The same provider also
+  supports EC2 IMDSv2, `AWS_EC2_METADATA_DISABLED`, and the standard metadata
+  endpoint override.
+
 ## 0.0.61-salman.4
 
 Fork release (salmanparacha/ksor) for the AWS HealthLake deployment — a tagged
