@@ -28,3 +28,11 @@ packages/ksor/ksor-tarball-run-*/
 # rule, so running the flag on it left an untracked copy of the whole record in
 # the working tree.
 **/.ksor/out/
+
+# Local agent-skill archive. Disabled skills are workstation state, not part
+# of the repository-maintenance surface under .agents/skills/.
+/.agents/unused-skills/
+
+# Independently versioned HealthLake deployment; never vendor its Git worktree
+# into the SDK fork that happens to contain it locally.
+/workbench/healthlake-ksor/
