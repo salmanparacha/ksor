@@ -3,6 +3,7 @@
 All search results MUST support pagination. Return a Bundle with navigation links.
 
 ## Table of Contents
+
 - [Search Response Structure](#search-response-structure)
 - [Pagination Parameters](#pagination-parameters)
 - [Link Relations](#link-relations)
@@ -38,21 +39,21 @@ All search results MUST support pagination. Return a Bundle with navigation link
 
 ## Pagination Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `_count` | Number of results per page | Server-defined (often 10-100) |
-| `_offset` | Starting index (0-based) | 0 |
-| `_page` | Alternative to offset (1-based page number) | 1 |
+| Parameter | Description                                 | Default                       |
+| --------- | ------------------------------------------- | ----------------------------- |
+| `_count`  | Number of results per page                  | Server-defined (often 10-100) |
+| `_offset` | Starting index (0-based)                    | 0                             |
+| `_page`   | Alternative to offset (1-based page number) | 1                             |
 
 ## Link Relations
 
-| Relation | Description |
-|----------|-------------|
-| `self` | Current page URL |
-| `first` | First page |
-| `previous` | Previous page (if not on first) |
-| `next` | Next page (if more results exist) |
-| `last` | Last page |
+| Relation   | Description                       |
+| ---------- | --------------------------------- |
+| `self`     | Current page URL                  |
+| `first`    | First page                        |
+| `previous` | Previous page (if not on first)   |
+| `next`     | Next page (if more results exist) |
+| `last`     | Last page                         |
 
 ## Implementation Example
 
@@ -96,10 +97,10 @@ async def search_patients(
 
 ## Additional Search Modifiers
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `_sort` | Sort by field (prefix `-` for descending) | `_sort=-date,name` |
-| `_elements` | Return only specified fields | `_elements=name,birthDate` |
-| `_summary` | Return summary view | `_summary=true` |
-| `_include` | Include referenced resources | `_include=Observation:patient` |
-| `_revinclude` | Include resources that reference this | `_revinclude=Observation:patient` |
+| Parameter     | Description                               | Example                           |
+| ------------- | ----------------------------------------- | --------------------------------- |
+| `_sort`       | Sort by field (prefix `-` for descending) | `_sort=-date,name`                |
+| `_elements`   | Return only specified fields              | `_elements=name,birthDate`        |
+| `_summary`    | Return summary view                       | `_summary=true`                   |
+| `_include`    | Include referenced resources              | `_include=Observation:patient`    |
+| `_revinclude` | Include resources that reference this     | `_revinclude=Observation:patient` |

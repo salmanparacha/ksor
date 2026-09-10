@@ -3,6 +3,7 @@
 SMART on FHIR is the standard authorization framework for FHIR APIs, built on OAuth 2.0.
 
 ## Table of Contents
+
 - [Discovery Endpoint](#discovery-endpoint)
 - [Scope Syntax](#scope-syntax)
 - [Launch Context](#launch-context)
@@ -13,26 +14,42 @@ SMART on FHIR is the standard authorization framework for FHIR APIs, built on OA
 ## Discovery Endpoint
 
 Servers MUST publish authorization configuration at:
+
 ```
 GET /.well-known/smart-configuration
 ```
 
 **Response:**
+
 ```json
 {
   "authorization_endpoint": "https://auth.example.org/authorize",
   "token_endpoint": "https://auth.example.org/token",
   "token_endpoint_auth_methods_supported": ["client_secret_basic", "private_key_jwt"],
-  "scopes_supported": ["openid", "fhirUser", "launch", "launch/patient",
-                       "patient/*.rs", "user/*.cruds", "offline_access"],
-  "capabilities": ["launch-ehr", "launch-standalone", "client-public",
-                   "client-confidential-symmetric", "permission-v2", "sso-openid-connect"]
+  "scopes_supported": [
+    "openid",
+    "fhirUser",
+    "launch",
+    "launch/patient",
+    "patient/*.rs",
+    "user/*.cruds",
+    "offline_access"
+  ],
+  "capabilities": [
+    "launch-ehr",
+    "launch-standalone",
+    "client-public",
+    "client-confidential-symmetric",
+    "permission-v2",
+    "sso-openid-connect"
+  ]
 }
 ```
 
 ## Scope Syntax
 
 **SMART v2 (Current Standard):**
+
 ```
 <context>/<resource>.<permissions>
 
@@ -42,42 +59,45 @@ permissions: c (create) | r (read) | u (update) | d (delete) | s (search)
 ```
 
 **Examples:**
-| Scope | Meaning |
-|-------|---------|
-| `patient/Patient.rs` | Read and search Patient for current patient context |
-| `patient/Observation.rs` | Read and search Observations for current patient |
-| `patient/*.rs` | Read and search all resources for current patient |
-| `user/Encounter.cruds` | Full CRUD + search on Encounters the user can access |
-| `system/*.rs` | Backend service: read/search all resources |
+
+| Scope                    | Meaning                                              |
+| ------------------------ | ---------------------------------------------------- |
+| `patient/Patient.rs`     | Read and search Patient for current patient context  |
+| `patient/Observation.rs` | Read and search Observations for current patient     |
+| `patient/*.rs`           | Read and search all resources for current patient    |
+| `user/Encounter.cruds`   | Full CRUD + search on Encounters the user can access |
+| `system/*.rs`            | Backend service: read/search all resources           |
 
 **SMART v1 (Legacy - still widely used):**
+
 ```
 <context>/<resource>.<read|write|*>
 ```
-| v1 Scope | Equivalent v2 |
-|----------|---------------|
-| `patient/Patient.read` | `patient/Patient.rs` |
-| `patient/Patient.write` | `patient/Patient.cud` |
-| `patient/Patient.*` | `patient/Patient.cruds` |
+
+| v1 Scope                | Equivalent v2           |
+| ----------------------- | ----------------------- |
+| `patient/Patient.read`  | `patient/Patient.rs`    |
+| `patient/Patient.write` | `patient/Patient.cud`   |
+| `patient/Patient.*`     | `patient/Patient.cruds` |
 
 ### Scope Types
 
-| Scope Type | Use Case | Context Required |
-|------------|----------|------------------|
-| `patient/` | Patient-facing apps | `patient` launch context |
-| `user/` | Provider-facing apps | User's access permissions |
-| `system/` | Backend services | Pre-configured policy |
+| Scope Type | Use Case             | Context Required          |
+| ---------- | -------------------- | ------------------------- |
+| `patient/` | Patient-facing apps  | `patient` launch context  |
+| `user/`    | Provider-facing apps | User's access permissions |
+| `system/`  | Backend services     | Pre-configured policy     |
 
 ## Launch Context
 
-| Scope | Provides | In Token Response |
-|-------|----------|-------------------|
-| `launch` | EHR launch context | `patient`, `encounter` |
-| `launch/patient` | Standalone patient selection | `patient` |
-| `launch/encounter` | Standalone encounter selection | `encounter` |
-| `openid fhirUser` | User identity | `id_token` with `fhirUser` claim |
-| `offline_access` | Refresh token (persistent) | `refresh_token` |
-| `online_access` | Refresh token (session-bound) | `refresh_token` |
+| Scope              | Provides                       | In Token Response                |
+| ------------------ | ------------------------------ | -------------------------------- |
+| `launch`           | EHR launch context             | `patient`, `encounter`           |
+| `launch/patient`   | Standalone patient selection   | `patient`                        |
+| `launch/encounter` | Standalone encounter selection | `encounter`                      |
+| `openid fhirUser`  | User identity                  | `id_token` with `fhirUser` claim |
+| `offline_access`   | Refresh token (persistent)     | `refresh_token`                  |
+| `online_access`    | Refresh token (session-bound)  | `refresh_token`                  |
 
 ## Authorization Flow (EHR Launch)
 
@@ -160,6 +180,7 @@ patients = requests.get(f"{FHIR_BASE}/Patient", headers=headers)
 ## Enforcing Scopes
 
 **Python/FastAPI Middleware:**
+
 ```python
 from fastapi import Request, HTTPException
 import re
@@ -196,8 +217,8 @@ async def check_scope(request: Request, resource_type: str, action: str):
 
 ## Common Authorization Errors
 
-| Status | Error | When |
-|--------|-------|------|
-| `401` | `invalid_token` | Token expired, malformed, or revoked |
-| `403` | `insufficient_scope` | Valid token but missing required scope |
-| `403` | `access_denied` | Resource outside patient compartment |
+| Status | Error                | When                                   |
+| ------ | -------------------- | -------------------------------------- |
+| `401`  | `invalid_token`      | Token expired, malformed, or revoked   |
+| `403`  | `insufficient_scope` | Valid token but missing required scope |
+| `403`  | `access_denied`      | Resource outside patient compartment   |

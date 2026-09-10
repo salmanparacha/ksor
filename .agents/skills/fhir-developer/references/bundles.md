@@ -1,6 +1,7 @@
 # FHIR Bundle Operations: Batch vs Transaction
 
 ## Table of Contents
+
 - [Key Differences](#key-differences)
 - [Transaction Bundle](#transaction-bundle)
 - [Batch Bundle](#batch-bundle)
@@ -8,18 +9,19 @@
 
 ## Key Differences
 
-| Feature | Transaction | Batch |
-|---------|-------------|-------|
-| Atomicity | **All-or-nothing** | Independent entries |
-| Failure handling | Entire bundle fails | Partial success allowed |
-| Use case | Related data that must succeed together | Independent operations |
-| Response | Single success/failure | Per-entry status |
+| Feature          | Transaction                             | Batch                   |
+| ---------------- | --------------------------------------- | ----------------------- |
+| Atomicity        | **All-or-nothing**                      | Independent entries     |
+| Failure handling | Entire bundle fails                     | Partial success allowed |
+| Use case         | Related data that must succeed together | Independent operations  |
+| Response         | Single success/failure                  | Per-entry status        |
 
 ## Transaction Bundle
 
 All entries succeed together, or all fail. Use for related data.
 
 **Request:**
+
 ```json
 {
   "resourceType": "Bundle",
@@ -29,7 +31,7 @@ All entries succeed together, or all fail. Use for related data.
       "fullUrl": "urn:uuid:patient-1",
       "resource": {
         "resourceType": "Patient",
-        "name": [{"family": "Smith", "given": ["John"]}]
+        "name": [{ "family": "Smith", "given": ["John"] }]
       },
       "request": {
         "method": "POST",
@@ -41,8 +43,8 @@ All entries succeed together, or all fail. Use for related data.
       "resource": {
         "resourceType": "Observation",
         "status": "final",
-        "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6"}]},
-        "subject": {"reference": "urn:uuid:patient-1"}
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "8480-6" }] },
+        "subject": { "reference": "urn:uuid:patient-1" }
       },
       "request": {
         "method": "POST",
@@ -54,6 +56,7 @@ All entries succeed together, or all fail. Use for related data.
 ```
 
 **Success Response (200 OK):**
+
 ```json
 {
   "resourceType": "Bundle",
@@ -80,15 +83,18 @@ All entries succeed together, or all fail. Use for related data.
 ```
 
 **Failure Response (400 Bad Request):** Entire transaction rolled back
+
 ```json
 {
   "resourceType": "OperationOutcome",
-  "issue": [{
-    "severity": "error",
-    "code": "required",
-    "diagnostics": "Observation.status is required",
-    "expression": ["Bundle.entry[1].resource"]
-  }]
+  "issue": [
+    {
+      "severity": "error",
+      "code": "required",
+      "diagnostics": "Observation.status is required",
+      "expression": ["Bundle.entry[1].resource"]
+    }
+  ]
 }
 ```
 
@@ -97,45 +103,47 @@ All entries succeed together, or all fail. Use for related data.
 Each entry processed independently. Partial success allowed.
 
 **Request:**
+
 ```json
 {
   "resourceType": "Bundle",
   "type": "batch",
   "entry": [
     {
-      "request": {"method": "GET", "url": "Patient/123"}
+      "request": { "method": "GET", "url": "Patient/123" }
     },
     {
-      "request": {"method": "GET", "url": "Patient/999"}
+      "request": { "method": "GET", "url": "Patient/999" }
     },
     {
       "resource": {
         "resourceType": "Observation",
         "status": "final",
-        "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6"}]}
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "8480-6" }] }
       },
-      "request": {"method": "POST", "url": "Observation"}
+      "request": { "method": "POST", "url": "Observation" }
     }
   ]
 }
 ```
 
 **Response (200 OK with mixed results):**
+
 ```json
 {
   "resourceType": "Bundle",
   "type": "batch-response",
   "entry": [
     {
-      "resource": {"resourceType": "Patient", "id": "123"},
-      "response": {"status": "200 OK"}
+      "resource": { "resourceType": "Patient", "id": "123" },
+      "response": { "status": "200 OK" }
     },
     {
       "response": {
         "status": "404 Not Found",
         "outcome": {
           "resourceType": "OperationOutcome",
-          "issue": [{"severity": "error", "code": "not-found"}]
+          "issue": [{ "severity": "error", "code": "not-found" }]
         }
       }
     },
@@ -152,6 +160,7 @@ Each entry processed independently. Partial success allowed.
 ## Processing Order
 
 Transactions are processed in this order (regardless of entry order):
+
 1. DELETE
 2. POST
 3. PUT/PATCH
