@@ -2,7 +2,21 @@
 
 **This document is the only authority on what is implemented.** The README is
 the concept; the released package version and this page are the facts. Last
-updated: 2026-09-09.
+updated: 2026-09-10.
+
+## Fork maintenance posture
+
+This `salmanparacha/ksor` fork is paused after delivering the AWS HealthLake
+POC. `origin` is the owner's writable fork; `upstream` is Panaversity and stays
+fetch-only. No feature work is planned while the owner waits for upstream's
+final implementation. Only critical fixes for the running POC should enter the
+fork, always through a pull request.
+
+The HealthLake deployment remains pinned to GitHub Release
+`v0.0.61-salman.5`. An upstream update must be reconciled against the fork's
+Titan signing, throttling, AgentCore credential, region, and rollback changes,
+then pass artifact-level HealthLake acceptance before replacing that pin. See
+[`docs/fork-maintenance.md`](fork-maintenance.md) for the procedure.
 
 ## Published package
 
