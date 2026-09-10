@@ -1,5 +1,5 @@
 ---
-name: fhir-developer-skill
+name: fhir-developer
 description: >
   FHIR API development guide for building healthcare endpoints. Use when: (1) Creating
   FHIR REST endpoints (Patient, Observation, Encounter, Condition, MedicationRequest),
