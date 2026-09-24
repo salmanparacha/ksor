@@ -1,0 +1,10 @@
+# Shared Codex setup for this repository (committed). Codex reads this file
+# only when the project is trusted. Personal MCP servers belong in
+# ~/.codex/config.toml, never here. Setup: docs/fork-maintenance.md.
+
+[marketplaces.agent-toolkit-for-aws]
+source_type = "git"
+source = "https://github.com/aws/agent-toolkit-for-aws.git"
+
+[plugins."aws-core@agent-toolkit-for-aws"]
+enabled = true

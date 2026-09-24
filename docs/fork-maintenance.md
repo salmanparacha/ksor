@@ -85,6 +85,31 @@ at a time with regression evidence. “Upstream has a Titan provider” is not b
 itself evidence that its signing, credential, throttling, and AgentCore paths
 match the deployed contract.
 
+## Coding-agent setup
+
+The fork shares one AWS plugin, `aws-core`, with every teammate through two
+committed, fork-only files: `.claude/settings.json` (Claude Code) and
+`.codex/config.toml` (Codex). They name the plugin and its marketplace; the
+plugin itself is downloaded by each agent into its own user cache and is never
+committed. Both files are fork-only — expect them in `upstream/main...origin/main`
+and resolve them by hand if upstream adds its own.
+
+One-time setup per teammate:
+
+1. **Claude Code:** open the repository, trust the folder, and accept the
+   prompt to install `aws-core` from `claude-plugins-official`.
+2. **Codex:** trust the project (Codex ignores `.codex/config.toml` in an
+   untrusted one), then run `codex plugin marketplace upgrade` once. Do not
+   run `codex plugin add aws-core@agent-toolkit-for-aws`: it also writes
+   `enabled = true` to `~/.codex/config.toml`, which enables the plugin in
+   every repository.
+3. **AWS:** sign in with `aws login`. The plugin's AWS MCP server uses each
+   developer's own credentials; none are committed.
+
+Personal MCP servers never go in these files. In Claude Code add them with
+`claude mcp add --scope local`; Codex has no local-only project file, so they
+go in `~/.codex/config.toml`.
+
 ## Paused-project posture
 
 While waiting for upstream:
