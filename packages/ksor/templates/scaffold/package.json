@@ -19,6 +19,9 @@
   "dependencies": {
     "@panaversity/ksor": "KSOR-STAMP-VERSION"
   },
+  "overrides": {
+    "mdast-util-to-markdown": "2.1.2"
+  },
   "engines": {
     "node": ">=24"
   },
