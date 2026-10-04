@@ -326,6 +326,24 @@ describe("ksor init — acceptance (spec clauses 1-3)", () => {
     );
   });
 
+  it("pins the Markdown serializer used by the scaffolded site", () => {
+    // fumadocs-core permits mdast-util-to-markdown ^2.1.2. Version 2.1.3
+    // introduced a recursive strong-node serializer: a clean scaffold with
+    // the starter summary then died in both npm and Bun manager acceptance
+    // with "RangeError: Maximum call stack size exceeded". The scaffold ships
+    // no lockfile for those managers, so this is the reproducibility boundary
+    // that keeps a later transitive release from changing its build result.
+    const dir = workDir();
+    expect(runInit(["serializer-pin"], dir).status).toBe(0);
+    // npm and Bun resolve the workspaces from the ROOT manifest. A nested
+    // workspace override is ignored, which is how the first repair attempt
+    // let 2.1.3 through in both manager-acceptance jobs.
+    const root = JSON.parse(
+      readFileSync(path.join(dir, "serializer-pin", "package.json"), "utf8"),
+    ) as { overrides?: Record<string, string> };
+    expect(root.overrides?.["mdast-util-to-markdown"]).toBe("2.1.2");
+  });
+
   it.runIf(process.platform !== "win32")(
     "gives both init forms the same project-root mode (0755)",
     () => {
