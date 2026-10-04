@@ -2,7 +2,7 @@
 
 **This document is the only authority on what is implemented.** The README is
 the concept; the released package version and this page are the facts. Last
-updated: 2026-09-10.
+updated: 2026-10-04.
 
 ## Fork maintenance posture
 
@@ -13,14 +13,14 @@ final implementation. Only critical fixes for the running POC should enter the
 fork, always through a pull request.
 
 The HealthLake deployment remains pinned to GitHub Release
-`v0.0.61-salman.5`. An upstream update must be reconciled against the fork's
+`v0.0.61-salman.6`. An upstream update must be reconciled against the fork's
 Titan signing, throttling, AgentCore credential, region, and rollback changes,
 then pass artifact-level HealthLake acceptance before replacing that pin. See
 [`docs/fork-maintenance.md`](fork-maintenance.md) for the procedure.
 
 ## Published package
 
-`@panaversity/ksor` **0.0.61-salman.5** as a `salmanparacha/ksor` GitHub Release
+`@panaversity/ksor` **0.0.61-salman.6** as a `salmanparacha/ksor` GitHub Release
 asset — the fork release for the AWS HealthLake deployment, NOT on npm (upstream
 0.0.60 remains the npm-published line, trusted publishing + provenance). It ships the working `ksor init` described below — including the
 visibility model and the deploy story — AND the bundled content kernel, so

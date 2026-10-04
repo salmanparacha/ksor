@@ -1,5 +1,15 @@
 # @panaversity/ksor
 
+## 0.0.61-salman.6
+
+Fork release (salmanparacha/ksor) for the AWS HealthLake deployment — a tagged
+GitHub Release asset, not an npm publication.
+
+### Patch Changes
+
+- 88b1eca: Pin the scaffold site's Markdown serializer so clean npm and Bun installs keep
+  building starter summaries after an incompatible transitive release.
+
 ## 0.0.61-salman.5
 
 Fork release (salmanparacha/ksor) for the AWS HealthLake deployment — a tagged
