@@ -125,6 +125,7 @@ GitHub Release asset, not an npm publication.
   rather than quarantining chunks); credentials resolve from an AgentCore/ECS
   workload-role endpoint with refresh, falling back to static AWS env vars.
   Cohere is retained as the emergency rollback target.
+
 ## 0.0.61
 
 ### Patch Changes
